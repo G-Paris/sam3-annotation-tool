@@ -1,0 +1,14 @@
+git+https://github.com/huggingface/transformers.git
+sentencepiece
+opencv-python
+imageio[pyav]
+torchvision
+matplotlib
+accelerate
+kernels
+pillow
+gradio
+spaces
+numpy
+torch
+peft

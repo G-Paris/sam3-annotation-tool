@@ -1,0 +1,35 @@
+from pydantic import BaseModel, Field
+from typing import List, Optional, Dict, Any, Tuple
+import numpy as np
+import uuid
+
+class SelectorInput(BaseModel):
+    image: Any  # PIL Image
+    text: str
+    input_boxes: List[List[int]] = []  # [[x1, y1, x2, y2], ...]
+    input_labels: List[int] = []       # [1, 0, ...] 1=Include, 0=Exclude
+    
+class ObjectState(BaseModel):
+    object_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    score: float
+
+    # To make mutable in the future
+    class_name: str
+    anchor_box: List[int] # [x1, y1, x2, y2] - STATIC from Selector
+ 
+    # Numpy array - DYNAMIC (Selector -> Refiner)
+    binary_mask: Any
+    
+    # Backup for Undo (Selector result)
+    initial_mask: Any = None
+    
+    # Refinement History
+    input_points: List[List[int]] = []
+    input_labels: List[int] = []
+    
+    class Config:
+        arbitrary_types_allowed = True
+
+class GlobalStore(BaseModel):
+    image_path: Optional[str] = None
+    objects: Dict[str, ObjectState] = {}
