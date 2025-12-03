@@ -63,18 +63,25 @@ def search_objects(selector_input: SelectorInput) -> list[ObjectState]:
         input_boxes = [boxes_float]
         
         if selector_input.input_labels:
-             input_labels = [[selector_input.input_labels]]
+             # Shape: (Batch, N_boxes) -> [[1, 0, ...]]
+             input_labels = [selector_input.input_labels]
     
     print(f"🔍 Search Inputs:")
     print(f"   - Text: '{selector_input.text}'")
     print(f"   - Boxes: {input_boxes}")
     print(f"   - Image Size: {image.size}")
         
+    # Note: Sam3Processor might not support input_labels directly in the same way as input_boxes for prompt encoding
+    # If the model supports it, we should pass it. If not, we might need to filter boxes manually or check documentation.
+    # Assuming standard SAM-like behavior where boxes don't usually have labels in this specific API call unless it's point prompts.
+    # However, for "Include/Exclude" areas, if the model treats all boxes as "Include", we have a problem.
+    # Let's check if we can pass it.
+    
     inputs = _IMG_PROCESSOR(
         images=image, 
         text=[selector_input.text], 
         input_boxes=input_boxes,
-        # input_labels=input_labels, # Removed as it causes TypeError in Sam3FastImageProcessor
+        input_boxes_labels=input_labels, 
         return_tensors="pt"
     ).to(device)
     

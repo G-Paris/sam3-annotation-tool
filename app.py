@@ -13,39 +13,86 @@ app_theme = CustomBlueTheme()
 
 # --- Helper Functions ---
 
-def process_upload(image_input):
-    """Handle image upload."""
-    if not image_input: return None
-    image = image_input.get("background")
-    if image is None: image = image_input.get("composite")
-    if image: controller.set_image(image)
-    return image
+def draw_boxes_on_image(image, boxes, labels, pending_point=None):
+    """Helper to draw boxes and pending point on image."""
+    if image is None: return None
+    out_img = image.copy()
+    draw = ImageDraw.Draw(out_img)
+    
+    w, h = image.size
+    
+    # Draw existing boxes
+    for box, label in zip(boxes, labels):
+        color = "#00FF00" if label == 1 else "#FF0000" # Green for Include, Red for Exclude
+        draw.rectangle(box, outline=color, width=3)
+        
+    # Draw pending point if exists
+    if pending_point:
+        x, y = pending_point
+        r = 5
+        draw.ellipse((x-r, y-r, x+r, y+r), fill="yellow", outline="black")
+        
+        # Draw crosshair guides
+        draw.line([(0, y), (w, y)], fill="cyan", width=1)
+        draw.line([(x, 0), (x, h)], fill="cyan", width=1)
+        
+    return out_img
 
-def add_box_from_drawing(image_input, box_type, current_boxes, current_labels):
-    """Extract box from drawing and add to list."""
-    if not image_input: return current_boxes, current_labels, image_input
+def on_upload(image):
+    """Handle image upload."""
+    if image:
+        controller.set_image(image)
+    return image, [], [], None # clean_img, boxes, labels, pending_pt
+
+def on_input_image_select(evt: gr.SelectData, pending_pt, boxes, labels, box_type, clean_img):
+    """Handle click on input image to define boxes."""
+    if clean_img is None: return gr.update(), pending_pt, boxes, labels
     
-    layers = image_input.get("layers")
-    if not layers or len(layers) == 0:
-        return current_boxes, current_labels, image_input # No drawing
+    x, y = evt.index
+    
+    if pending_pt is None:
+        # First point
+        new_pending = (x, y)
+        # Draw point
+        vis_img = draw_boxes_on_image(clean_img, boxes, labels, new_pending)
+        return vis_img, new_pending, boxes, labels
+    else:
+        # Second point - Finalize box
+        x1, y1 = pending_pt
+        x2, y2 = x, y
         
-    # Get bbox from first layer
-    bbox = get_bbox_from_mask(layers[0])
-    if not bbox:
-        return current_boxes, current_labels, image_input
+        # Create box [x_min, y_min, x_max, y_max]
+        bbox = [min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2)]
         
-    # Add to lists
-    label = 1 if box_type == "Include Area" else 0
+        # Add to list
+        lbl = 1 if box_type == "Include Area" else 0
+        new_boxes = boxes + [bbox]
+        new_labels = labels + [lbl]
+        
+        # Draw all
+        vis_img = draw_boxes_on_image(clean_img, new_boxes, new_labels, None)
+        
+        return vis_img, None, new_boxes, new_labels
+
+def undo_last_click(pending_pt, boxes, labels, clean_img):
+    """Undo the last click or remove the last box."""
+    if clean_img is None: return gr.update(), None, boxes, labels
     
-    new_boxes = current_boxes + [bbox]
-    new_labels = current_labels + [label]
+    # Case 1: Pending point exists (user clicked once) -> Clear it
+    if pending_pt is not None:
+        # Redraw only boxes
+        vis_img = draw_boxes_on_image(clean_img, boxes, labels, None)
+        return vis_img, None, boxes, labels
     
-    # Clear drawing by returning original background as new value
-    # ImageEditor expects {background: img, layers: [], composite: img}
-    # But passing just the background image usually resets it
-    background = image_input.get("background")
-    
-    return new_boxes, new_labels, background
+    # Case 2: No pending point, but boxes exist -> Remove last box
+    if boxes:
+        boxes.pop()
+        labels.pop()
+        vis_img = draw_boxes_on_image(clean_img, boxes, labels, None)
+        return vis_img, None, boxes, labels
+        
+    # Case 3: Nothing to undo
+    return gr.update(), None, boxes, labels
 
 def format_box_list(boxes, labels):
     """Format boxes for display in Dataframe."""
@@ -59,27 +106,25 @@ def on_box_select(evt: gr.SelectData):
     """Enable delete button when row selected."""
     return evt.index[0], gr.update(interactive=True)
 
-def delete_box_wrapper(idx, boxes, labels):
+def delete_box_wrapper(idx, boxes, labels, clean_img):
     """Delete box by index."""
     if idx is not None and 0 <= idx < len(boxes):
         boxes.pop(idx)
         labels.pop(idx)
-    return boxes, labels, None, gr.update(interactive=False)
+    
+    vis_img = draw_boxes_on_image(clean_img, boxes, labels)
+    return boxes, labels, None, gr.update(interactive=False), vis_img
 
-def run_inference_step1(image_input, text_prompt, boxes, labels):
+def run_inference_step1(clean_image, text_prompt, boxes, labels):
     """Step 1: Run Inference and switch screens."""
     print(f"🖱️ Run Inference Clicked! Prompt: '{text_prompt}', Boxes: {len(boxes)}")
     
-    if not image_input: 
+    if clean_image is None: 
         raise gr.Error("Please upload an image.")
     if not text_prompt: 
         raise gr.Error("Please enter a text prompt.")
-    
-    image = image_input.get("background") or image_input.get("composite")
-    if image is None:
-        raise gr.Error("Failed to process image.")
         
-    controller.set_image(image)
+    controller.set_image(clean_image)
     
     try:
         candidates = controller.search_and_add(text_prompt, boxes, labels)
@@ -91,7 +136,7 @@ def run_inference_step1(image_input, text_prompt, boxes, labels):
     # Return candidates, image, and screen visibility updates
     return (
         candidates,
-        image,
+        clean_image,
         gr.update(visible=False), # Hide Input
         gr.update(visible=True)   # Show Results
     )
@@ -238,10 +283,42 @@ def add_to_store(candidates, selected_indices):
 custom_css="""
 #col-container { margin: 0 auto; max-width: 1100px; }
 #main-title h1 { font-size: 2.1em !important; }
+#input_image { position: relative; overflow: hidden; }
+#input_image button, #input_image img, #input_image canvas { cursor: crosshair !important; }
+"""
+
+crosshair_js = """
+function setupCrosshair() {
+    const c = document.querySelector('#input_image');
+    if (!c) { setTimeout(setupCrosshair, 200); return; }
+    if (c.dataset.setup) return;
+    c.dataset.setup = "true";
+    c.style.position = 'relative';
+
+    const createLine = (id, isH) => {
+        let l = document.createElement('div');
+        l.style.cssText = `position:absolute;background:cyan;pointer-events:none;z-index:10000;display:none;box-shadow:0 0 2px rgba(0,0,0,0.5);${isH ? 'height:1px;width:100%;' : 'width:1px;height:100%;top:0;'}`;
+        c.appendChild(l);
+        return l;
+    };
+    const h = createLine('h', true), v = createLine('v', false);
+
+    c.addEventListener('mousemove', (e) => {
+        const r = c.getBoundingClientRect();
+        const x = e.clientX - r.left, y = e.clientY - r.top;
+        if (x >= 0 && x <= r.width && y >= 0 && y <= r.height) {
+            h.style.display = v.style.display = 'block';
+            h.style.top = (y - 2) + 'px';
+            v.style.left = (x - 2) + 'px';
+        } else { h.style.display = v.style.display = 'none'; }
+    });
+    c.addEventListener('mouseleave', () => { h.style.display = v.style.display = 'none'; });
+}
 """
 
 with gr.Blocks() as demo:
     gr.HTML(f"<style>{custom_css}</style>")
+
     
     # State Variables
     st_boxes = gr.State([])
@@ -250,6 +327,9 @@ with gr.Blocks() as demo:
     st_selected_indices = gr.State(set()) # Track selected indices
     st_current_image = gr.State(None)
     st_selected_box_index = gr.State(None) # Track selected box for deletion
+    
+    st_clean_input_image = gr.State(None) # Store original uploaded image
+    st_pending_point = gr.State(None) # Store first point of box click
     
     # Hidden status box for messages
     status_box = gr.Textbox(visible=False)
@@ -261,16 +341,17 @@ with gr.Blocks() as demo:
         with gr.Column(visible=True) as input_screen:
             with gr.Row():
                 with gr.Column(scale=2):
-                    img_editor = gr.ImageEditor(
-                        label="1. Upload Image & Draw Boxes", 
+                    img_input = gr.Image(
+                        label="1. Upload Image & Click 2 Points for Box", 
                         type="pil", 
                         height=500,
-                        brush=gr.Brush(colors=["#FF0000"], color_mode="fixed")
+                        interactive=True,
+                        elem_id="input_image"
                     )
                     
                     with gr.Row():
                         box_type = gr.Radio(["Include Area", "Exclude Area"], value="Include Area", label="Box Type")
-                        add_box_btn = gr.Button("Add Box from Drawing", variant="secondary")
+                        undo_click_btn = gr.Button("Undo Last Click", variant="secondary")
                 
                 with gr.Column(scale=1):
                     gr.Markdown("### 2. Prompt Settings")
@@ -411,18 +492,36 @@ with gr.Blocks() as demo:
 
     # --- Event Wiring ---
     
-    # 1. Add Box
-    add_box_btn.click(
-        fn=add_box_from_drawing,
-        inputs=[img_editor, box_type, st_boxes, st_labels],
-        outputs=[st_boxes, st_labels, img_editor]
+    # 1. Upload Image
+    img_input.upload(
+        fn=on_upload,
+        inputs=[img_input],
+        outputs=[st_clean_input_image, st_boxes, st_labels, st_pending_point]
+    )
+    
+    # 2. Click on Image (Add Box)
+    img_input.select(
+        fn=on_input_image_select,
+        inputs=[st_pending_point, st_boxes, st_labels, box_type, st_clean_input_image],
+        outputs=[img_input, st_pending_point, st_boxes, st_labels]
     ).then(
         fn=format_box_list,
         inputs=[st_boxes, st_labels],
         outputs=[box_list_display]
     )
     
-    # 2. Delete Box
+    # 2b. Undo Click
+    undo_click_btn.click(
+        fn=undo_last_click,
+        inputs=[st_pending_point, st_boxes, st_labels, st_clean_input_image],
+        outputs=[img_input, st_pending_point, st_boxes, st_labels]
+    ).then(
+        fn=format_box_list,
+        inputs=[st_boxes, st_labels],
+        outputs=[box_list_display]
+    )
+    
+    # 3. Delete Box
     box_list_display.select(
         fn=on_box_select,
         inputs=[],
@@ -431,22 +530,22 @@ with gr.Blocks() as demo:
     
     delete_box_btn.click(
         fn=delete_box_wrapper,
-        inputs=[st_selected_box_index, st_boxes, st_labels],
-        outputs=[st_boxes, st_labels, st_selected_box_index, delete_box_btn]
+        inputs=[st_selected_box_index, st_boxes, st_labels, st_clean_input_image],
+        outputs=[st_boxes, st_labels, st_selected_box_index, delete_box_btn, img_input]
     ).then(
         fn=format_box_list,
         inputs=[st_boxes, st_labels],
         outputs=[box_list_display]
     )
     
-    # 3. Run Inference
+    # 4. Run Inference
     run_btn.click(
         fn=lambda: gr.update(value="Running Inference...", interactive=False),
         inputs=[],
         outputs=[run_btn]
     ).then(
         fn=run_inference_step1,
-        inputs=[img_editor, txt_prompt, st_boxes, st_labels],
+        inputs=[st_clean_input_image, txt_prompt, st_boxes, st_labels],
         outputs=[st_candidates, st_current_image, input_screen, result_screen]
     ).then(
         fn=render_results_step2,
@@ -522,6 +621,9 @@ with gr.Blocks() as demo:
         inputs=[],
         outputs=[export_status]
     )
+    
+    # Load JS
+    demo.load(None, None, None, js=crosshair_js)
     
     # 7. Restart (Removed)
     # restart_btn.click(...)
