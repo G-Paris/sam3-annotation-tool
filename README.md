@@ -23,9 +23,9 @@ This project provides a Gradio interface for image annotation using the SAM3 mod
     The SAM3 model (`facebook/sam3`) is hosted on Hugging Face and may be gated. You need an access token to download it.
     
     1.  Create a Hugging Face account if you don't have one.
-    2.  Go to [Settings > Access Tokens](https://huggingface.co/settings/tokens).
-    3.  Create a new token with **Read** permissions.
-    4.  (Optional but recommended) Visit the [facebook/sam3 model card](https://huggingface.co/facebook/sam3) to accept any license terms if prompted.
+    2.  **Request Access**: Visit the [facebook/sam3 model card](https://huggingface.co/facebook/sam3) and accept the license terms to request access. You must do this before the model can be downloaded.
+    3.  Go to [Settings > Access Tokens](https://huggingface.co/settings/tokens).
+    4.  Create a new token with **Read** permissions. You only need read access to the SAM3 repository.
 
 ### Installation & Running
 
