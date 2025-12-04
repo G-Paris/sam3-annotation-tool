@@ -34,3 +34,8 @@ class ObjectState(BaseModel):
 class GlobalStore(BaseModel):
     image_path: Optional[str] = None
     objects: Dict[str, ObjectState] = {}
+
+class ProjectState(BaseModel):
+    playlist: List[str] = []
+    current_index: int = -1
+    annotations: Dict[str, GlobalStore] = {}

@@ -113,11 +113,29 @@ def delete_checked_boxes(df_data, clean_img):
     
     return new_boxes, new_labels, new_df, vis_img
 
-def on_upload(image):
-    """Handle image upload."""
-    if image:
-        controller.set_image(image)
-    return image, [], [], None # clean_img, boxes, labels, pending_pt
+def on_upload(files):
+    """Handle image upload (list of files)."""
+    if not files:
+        return None, [], [], None
+        
+    # files is a list of file paths (strings) or file objects depending on Gradio version/config
+    # With file_count="multiple", it's usually a list of temp paths.
+    
+    # If it's a single file (legacy check), wrap it
+    if not isinstance(files, list):
+        files = [files]
+        
+    # Extract paths
+    paths = []
+    for f in files:
+        if isinstance(f, str):
+            paths.append(f)
+        elif hasattr(f, 'name'):
+            paths.append(f.name)
+            
+    first_image = controller.load_playlist(paths)
+    
+    return first_image, [], [], None # clean_img, boxes, labels, pending_pt
 
 def on_input_image_select(evt: gr.SelectData, pending_pt, boxes, labels, box_type, clean_img):
     """Handle click on input image to define boxes."""

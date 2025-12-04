@@ -1,11 +1,19 @@
 import torch
 import numpy as np
 from PIL import Image
+import warnings
+import logging
 from transformers import (
     Sam3Model, Sam3Processor,
-    Sam3TrackerModel, Sam3TrackerProcessor
+    Sam3TrackerModel, Sam3TrackerProcessor,
+    logging as transformers_logging
 )
 from .schemas import ObjectState, SelectorInput
+
+# Suppress specific warnings
+warnings.filterwarnings("ignore", message=".*The OrderedVocab you are attempting to save contains holes.*")
+warnings.filterwarnings("ignore", message=".*You are using a model of type sam3_video to instantiate a model of type sam3_tracker.*")
+transformers_logging.set_verbosity_error()
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -126,10 +134,10 @@ def refine_object(image: Image.Image, obj_state: ObjectState) -> np.ndarray:
     
     # Prepare inputs
     # Ensure floats for model
-    # box_float = [float(x) for x in obj_state.anchor_box] # Not using box for refinement yet
+    box_float = [float(x) for x in obj_state.anchor_box]
     points_float = [[float(p[0]), float(p[1])] for p in obj_state.input_points]
     
-    # input_boxes = [[box_float]]
+    input_boxes = [[box_float]]
     
     # Nesting for Sam3TrackerProcessor:
     # input_points: 4 levels [Image, Object, Point, Coords]
@@ -145,7 +153,7 @@ def refine_object(image: Image.Image, obj_state: ObjectState) -> np.ndarray:
     
     inputs = _TRK_PROCESSOR(
         images=image,
-        # input_boxes=input_boxes, # Removed boxes for now to match working example
+        input_boxes=input_boxes,
         input_points=input_points,
         input_labels=input_labels,
         return_tensors="pt"

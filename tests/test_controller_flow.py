@@ -1,6 +1,7 @@
 
 import os
 import sys
+import shutil
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 import numpy as np
 import random
@@ -39,12 +40,22 @@ def test_controller_flow():
         print(f"❌ Image not found at {img_path}")
         return
         
+    # Create a second dummy image for playlist testing
+    img_path_2 = os.path.join(OUTPUT_DIR, "test_image_2.png")
+    shutil.copy2(img_path, img_path_2)
+    
     image = Image.open(img_path)
     print(f"✅ Loaded image from {img_path} (Size: {image.size})")
     
     # 2. Initialize Controller
-    print("🔹 Setting image in controller...")
-    controller.set_image(image)
+    print("🔹 Loading playlist in controller...")
+    # Use load_playlist to properly set up project state for export
+    controller.load_playlist([img_path, img_path_2])
+    
+    # Verify image loaded
+    if controller.current_image is None:
+        print("❌ Failed to load image via load_playlist")
+        return
     
     # 3. Define Inputs
     prompt = "yellow cheese blocks" 
@@ -152,21 +163,62 @@ def test_controller_flow():
     except Exception as e:
         print(f"   ❌ Revert failed: {e}")
 
+    # 7.5 Test Next Image (Simulate Finish Image)
+    print("🔹 Testing Next Image (Simulate Finish Image)...")
+    print(f"   Current Index: {controller.project.current_index}")
+    print(f"   Current Path: {controller.current_image_path}")
+    
+    # Simulate what app.py does: save explicitly then next
+    if controller.current_image_path:
+        controller.project.annotations[controller.current_image_path] = controller.store
+        
+    next_img = controller.next_image()
+    
+    if next_img:
+        print("   ✅ Next image loaded.")
+        print(f"   New Index: {controller.project.current_index}")
+        print(f"   New Path: {controller.current_image_path}")
+        
+        # Check if previous image is in annotations
+        prev_path = img_path
+        if prev_path in controller.project.annotations:
+            saved_store = controller.project.annotations[prev_path]
+            print(f"   ✅ Previous image found in annotations.")
+            print(f"      Objects in saved store: {len(saved_store.objects)}")
+            if len(saved_store.objects) > 0:
+                print("      ✅ Saved store has objects.")
+            else:
+                print("      ❌ Saved store is empty!")
+        else:
+            print(f"   ❌ Previous image NOT found in annotations. Keys: {list(controller.project.annotations.keys())}")
+    else:
+        print("   ❌ Failed to load next image.")
+
     # 8. Test Export Data
     print("🔹 Testing Export Data...")
     try:
-        export_res = controller.export_data(OUTPUT_DIR)
-        if export_res:
-            _, txt_path = export_res
-            print(f"   ✅ Export successful.")
-            print(f"      Annotations: {txt_path}")
+        _, msg = controller.export_data(OUTPUT_DIR)
+        print(f"   ℹ️ Export Message: {msg}")
+        
+        if "No annotations" in msg:
+             print("   ❌ Export failed: No annotations found.")
+        else:
+            print(f"   ✅ Export reported success.")
+            
+            # Construct expected label path
+            # Image name: DEPAL1_... .png -> Label: DEPAL1_... .txt
+            img_filename = os.path.basename(img_path)
+            label_filename = os.path.splitext(img_filename)[0] + ".txt"
+            expected_label_path = os.path.join(OUTPUT_DIR, "labels", "train", label_filename)
+            
+            print(f"      Checking for: {expected_label_path}")
             
             # Verify file existence
-            if os.path.exists(txt_path):
-                print("      Files exist on disk.")
+            if os.path.exists(expected_label_path):
+                print("      ✅ Label file exists on disk.")
                 
                 # Verify content
-                with open(txt_path, "r") as f:
+                with open(expected_label_path, "r") as f:
                     content = f.read()
                     print(f"      Annotation Content Preview:\n{content[:200]}...")
                     if len(content.strip()) > 0:
@@ -174,9 +226,15 @@ def test_controller_flow():
                     else:
                         print("      ❌ Annotation file is empty!")
             else:
-                print("      ❌ Files missing on disk.")
-        else:
-            print("   ❌ Export returned None.")
+                print("      ❌ Label file missing on disk.")
+                
+            # Check data.yaml
+            yaml_path = os.path.join(OUTPUT_DIR, "data.yaml")
+            if os.path.exists(yaml_path):
+                print("      ✅ data.yaml exists.")
+            else:
+                print("      ❌ data.yaml missing.")
+
     except Exception as e:
         print(f"   ❌ Export failed: {e}")
 

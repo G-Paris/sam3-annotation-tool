@@ -27,7 +27,9 @@ def run_inference_step1(clean_image, text_prompt, boxes, labels, class_name_over
     if not text_prompt: 
         raise gr.Error("Please enter a text prompt.")
         
-    controller.set_image(clean_image)
+    # Only set image if not in playlist mode (to avoid resetting project state)
+    if not controller.project.playlist:
+        controller.set_image(clean_image)
     
     try:
         candidates = controller.search_and_add(text_prompt, boxes, labels, class_name_override)
@@ -155,10 +157,10 @@ def revert_object_refinement(obj_id):
 def export_results():
     """Export results to output folder."""
     try:
-        res = controller.export_data("output")
+        res = controller.export_data("output_dataset")
         if res:
-            _, txt_path = res
-            return f"Exported annotations to {txt_path}"
+            _, msg = res
+            return msg
         else:
             return "Export failed: No data to export."
     except Exception as e:
@@ -329,14 +331,27 @@ with gr.Blocks() as demo:
     with gr.Column(elem_id="col-container"):
         gr.Markdown("# **SAM3 Annotator**", elem_id="main-title")
         
+        # --- SCREEN 0: SETUP ---
+        with gr.Column(visible=True) as setup_screen:
+            gr.Markdown("### 1. Select Data Source")
+            upload_files = gr.File(label="Upload Folder", file_count="directory", file_types=["image"], height=200)
+            start_btn = gr.Button("Start Annotation", variant="primary", interactive=False)
+
         # --- SCREEN 1: INPUT ---
-        with gr.Column(visible=True) as input_screen:
+        with gr.Column(visible=False) as input_screen:
             gr.Markdown("### Generate initial objects")
+            
+            # Navigation (Full Width)
+            with gr.Row():
+                prev_btn = gr.Button("Previous")
+                nav_status = gr.Textbox(label="Status", value="0/0", interactive=False, scale=2)
+                next_btn = gr.Button("Next")
+                
             with gr.Row():
                 # Left Column: Image
                 with gr.Column(scale=3):
                     img_input = gr.Image(
-                        label="1. Upload Image & Click 2 Points for Box", 
+                        label="Current Image (Click 2 Points for Box)", 
                         type="pil", 
                         height=600,
                         interactive=True,
@@ -419,9 +434,14 @@ with gr.Blocks() as demo:
                         elem_classes="zoom-image"
                     )
                     
-                    # Moved Export Status here
-                    export_status = gr.Textbox(label="Export Status", interactive=False, elem_id="export-status", lines=3)
-                
+                    # Project State Display
+                    gr.Markdown("### Project Status")
+                    project_status_display = gr.JSON(label="Current Annotations", value={})
+                    
+                    with gr.Row():
+                        export_btn = gr.Button("Export Results (YOLO)", variant="secondary")
+                        export_status = gr.Textbox(label="Export Status", interactive=False, elem_id="export-status", lines=1)
+
                 with gr.Column(scale=1):
                     gr.Markdown("")
                     
@@ -445,8 +465,8 @@ with gr.Blocks() as demo:
                     revert_btn = gr.Button("Revert Object", size="sm", variant="secondary")
 
                     gr.Markdown("")
-                    export_btn = gr.Button("Export Results (YOLO)", variant="primary")
-                    # export_status was here
+                    finish_img_btn = gr.Button("Finish Image & Next", variant="primary")
+                    # export_btn was here
 
     # --- Helper Functions for Editor ---
     
@@ -528,11 +548,73 @@ with gr.Blocks() as demo:
 
     # --- Event Wiring ---
     
-    # 1. Upload Image
-    img_input.upload(
-        fn=on_upload,
-        inputs=[img_input],
-        outputs=[st_clean_input_image, st_boxes, st_labels, st_pending_point]
+    # 1. Upload Files
+    def handle_upload(files):
+        # Load playlist
+        img, _, _, _ = on_upload(files)
+        # Enable start button if images found
+        count = len(controller.project.playlist)
+        if count > 0:
+            return gr.update(interactive=True, value=f"Start Annotation ({count} images)")
+        else:
+            return gr.update(interactive=False, value="Start Annotation")
+
+    upload_files.upload(
+        fn=handle_upload,
+        inputs=[upload_files],
+        outputs=[start_btn]
+    )
+    
+    def start_session():
+        if not controller.project.playlist:
+             raise gr.Error("No images loaded.")
+        
+        # Ensure we have the first image loaded
+        if controller.current_image is None:
+            print("⚠️ Current image is None, attempting to load index 0...")
+            controller.load_image_at_index(0)
+            
+        img = controller.current_image
+        if img is None:
+             raise gr.Error("Failed to load first image.")
+             
+        status = f"Image {controller.project.current_index + 1}/{len(controller.project.playlist)}"
+        
+        return (
+            gr.update(visible=False), # setup_screen
+            gr.update(visible=True),  # input_screen
+            gr.update(value=img), # img_input - Explicit update
+            img, # st_clean_input_image
+            [], # st_boxes
+            [], # st_labels
+            None, # st_pending
+            status # nav_status
+        )
+
+    start_btn.click(
+        fn=start_session,
+        outputs=[setup_screen, input_screen, img_input, st_clean_input_image, st_boxes, st_labels, st_pending_point, nav_status]
+    )
+    
+    # Navigation
+    def on_nav_prev():
+        img = controller.prev_image()
+        status = f"Image {controller.project.current_index + 1}/{len(controller.project.playlist)}" if img else "0/0"
+        return img, img, [], [], None, status
+
+    def on_nav_next():
+        img = controller.next_image()
+        status = f"Image {controller.project.current_index + 1}/{len(controller.project.playlist)}" if img else "0/0"
+        return img, img, [], [], None, status
+
+    prev_btn.click(
+        fn=on_nav_prev,
+        outputs=[img_input, st_clean_input_image, st_boxes, st_labels, st_pending_point, nav_status]
+    )
+    
+    next_btn.click(
+        fn=on_nav_next,
+        outputs=[img_input, st_clean_input_image, st_boxes, st_labels, st_pending_point, nav_status]
     )
     
     # 2. Click on Image (Add Box)
@@ -687,6 +769,81 @@ with gr.Blocks() as demo:
         fn=export_results,
         inputs=[],
         outputs=[export_status]
+    )
+    
+    # Helper to get project status
+    def get_project_status():
+        if not controller.project: return {}
+        
+        # Build dict directly to avoid type inference issues
+        details = {}
+        for path, store in controller.project.annotations.items():
+            name = path.split("/")[-1]
+            details[name] = len(store.objects)
+
+        stats = {
+            "total_images": len(controller.project.playlist),
+            "current_index": controller.project.current_index,
+            "annotated_images": len(controller.project.annotations),
+            "total_objects": sum(len(s.objects) for s in controller.project.annotations.values()),
+            "details": details
+        }
+        
+        return stats
+
+    # Finish Image & Next
+    def on_finish_image():
+        # Ensure current state is saved before moving
+        if controller.current_image_path:
+            controller.project.annotations[controller.current_image_path] = controller.store
+            
+        img = controller.next_image()
+        status = f"Image {controller.project.current_index + 1}/{len(controller.project.playlist)}" if img else "Finished"
+        
+        # If no more images, stay on editor but maybe show alert? 
+        # For now, if img is None, we might have reached the end.
+        
+        if img:
+            return (
+                gr.update(visible=False), # editor_screen
+                gr.update(visible=True),  # input_screen
+                img, # img_input
+                img, # st_clean_input_image
+                [], # st_boxes
+                [], # st_labels
+                None, # st_pending
+                status, # nav_status
+                get_project_status() # Update status display
+            )
+        else:
+            # End of playlist
+            return (
+                gr.update(visible=True), # Stay on editor
+                gr.update(visible=False), 
+                gr.update(), 
+                gr.update(),
+                [], [], None, 
+                "Finished",
+                get_project_status()
+            )
+
+    finish_img_btn.click(
+        fn=on_finish_image,
+        outputs=[editor_screen, input_screen, img_input, st_clean_input_image, st_boxes, st_labels, st_pending_point, nav_status, project_status_display]
+    )
+    
+    # Update status on enter editor
+    confirm_btn.click(
+        fn=add_to_store_wrapper,
+        inputs=[st_candidates, st_selected_indices],
+        outputs=[status_box, result_screen, editor_screen]
+    ).then(
+        fn=init_editor,
+        inputs=[],
+        outputs=[refine_image, object_list]
+    ).then(
+        fn=get_project_status,
+        outputs=[project_status_display]
     )
     
     # Load JS
