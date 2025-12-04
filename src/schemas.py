@@ -6,6 +6,7 @@ import uuid
 class SelectorInput(BaseModel):
     image: Any  # PIL Image
     text: str
+    class_name_override: Optional[str] = None
     input_boxes: List[List[int]] = []  # [[x1, y1, x2, y2], ...]
     input_labels: List[int] = []       # [1, 0, ...] 1=Include, 0=Exclude
     

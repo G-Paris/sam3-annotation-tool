@@ -104,12 +104,14 @@ def search_objects(selector_input: SelectorInput) -> list[ObjectState]:
         anchor_box = get_bbox_from_mask(mask)
         if anchor_box is None: continue
         
+        final_name = selector_input.class_name_override if selector_input.class_name_override else selector_input.text
+        
         candidates.append(ObjectState(
             score=float(raw_scores[idx]),
             anchor_box=anchor_box,
             binary_mask=mask,
             initial_mask=mask, # Save copy for undo
-            class_name=selector_input.text
+            class_name=final_name
         ))
         
     return candidates

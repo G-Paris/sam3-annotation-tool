@@ -20,13 +20,14 @@ class AppController:
         self.current_image = image
         self.store = GlobalStore() # Reset store on new image
         
-    def search_and_add(self, class_name: str, search_boxes: list[list[int]] = [], search_labels: list[int] = []):
+    def search_and_add(self, class_name: str, search_boxes: list[list[int]] = [], search_labels: list[int] = [], class_name_override: str = None):
         if self.current_image is None: return []
         
         # Create SelectorInput
         selector_input = SelectorInput(
             image=self.current_image,
             text=class_name,
+            class_name_override=class_name_override,
             input_boxes=search_boxes,
             input_labels=search_labels
         )

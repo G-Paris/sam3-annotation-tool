@@ -1,10 +1,14 @@
 import gradio as gr
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 from src.theme import CustomBlueTheme
 from src.controller import controller
 from src.inference import load_models
 from src.utils import apply_mask_overlay, draw_points_on_image, get_bbox_from_mask, create_mask_crop
+from src.view_helpers import (
+    draw_boxes_on_image, format_box_list, parse_dataframe, on_dataframe_change,
+    delete_checked_boxes, on_upload, on_input_image_select, undo_last_click
+)
 
 # Load models immediately on startup
 load_models()
@@ -12,112 +16,11 @@ load_models()
 app_theme = CustomBlueTheme()
 
 # --- Helper Functions ---
+# (Moved to src/view_helpers.py)
 
-def draw_boxes_on_image(image, boxes, labels, pending_point=None):
-    """Helper to draw boxes and pending point on image."""
-    if image is None: return None
-    out_img = image.copy()
-    draw = ImageDraw.Draw(out_img)
-    
-    w, h = image.size
-    
-    # Draw existing boxes
-    for box, label in zip(boxes, labels):
-        color = "#00FF00" if label == 1 else "#FF0000" # Green for Include, Red for Exclude
-        draw.rectangle(box, outline=color, width=3)
-        
-    # Draw pending point if exists
-    if pending_point:
-        x, y = pending_point
-        r = 5
-        draw.ellipse((x-r, y-r, x+r, y+r), fill="yellow", outline="black")
-        
-        # Draw crosshair guides
-        draw.line([(0, y), (w, y)], fill="cyan", width=1)
-        draw.line([(x, 0), (x, h)], fill="cyan", width=1)
-        
-    return out_img
-
-def on_upload(image):
-    """Handle image upload."""
-    if image:
-        controller.set_image(image)
-    return image, [], [], None # clean_img, boxes, labels, pending_pt
-
-def on_input_image_select(evt: gr.SelectData, pending_pt, boxes, labels, box_type, clean_img):
-    """Handle click on input image to define boxes."""
-    if clean_img is None: return gr.update(), pending_pt, boxes, labels
-    
-    x, y = evt.index
-    
-    if pending_pt is None:
-        # First point
-        new_pending = (x, y)
-        # Draw point
-        vis_img = draw_boxes_on_image(clean_img, boxes, labels, new_pending)
-        return vis_img, new_pending, boxes, labels
-    else:
-        # Second point - Finalize box
-        x1, y1 = pending_pt
-        x2, y2 = x, y
-        
-        # Create box [x_min, y_min, x_max, y_max]
-        bbox = [min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2)]
-        
-        # Add to list
-        lbl = 1 if box_type == "Include Area" else 0
-        new_boxes = boxes + [bbox]
-        new_labels = labels + [lbl]
-        
-        # Draw all
-        vis_img = draw_boxes_on_image(clean_img, new_boxes, new_labels, None)
-        
-        return vis_img, None, new_boxes, new_labels
-
-def undo_last_click(pending_pt, boxes, labels, clean_img):
-    """Undo the last click or remove the last box."""
-    if clean_img is None: return gr.update(), None, boxes, labels
-    
-    # Case 1: Pending point exists (user clicked once) -> Clear it
-    if pending_pt is not None:
-        # Redraw only boxes
-        vis_img = draw_boxes_on_image(clean_img, boxes, labels, None)
-        return vis_img, None, boxes, labels
-    
-    # Case 2: No pending point, but boxes exist -> Remove last box
-    if boxes:
-        boxes.pop()
-        labels.pop()
-        vis_img = draw_boxes_on_image(clean_img, boxes, labels, None)
-        return vis_img, None, boxes, labels
-        
-    # Case 3: Nothing to undo
-    return gr.update(), None, boxes, labels
-
-def format_box_list(boxes, labels):
-    """Format boxes for display in Dataframe."""
-    data = []
-    for i, box in enumerate(boxes):
-        lbl = "Include" if labels[i] == 1 else "Exclude"
-        data.append([i, lbl, str(box)])
-    return data
-
-def on_box_select(evt: gr.SelectData):
-    """Enable delete button when row selected."""
-    return evt.index[0], gr.update(interactive=True)
-
-def delete_box_wrapper(idx, boxes, labels, clean_img):
-    """Delete box by index."""
-    if idx is not None and 0 <= idx < len(boxes):
-        boxes.pop(idx)
-        labels.pop(idx)
-    
-    vis_img = draw_boxes_on_image(clean_img, boxes, labels)
-    return boxes, labels, None, gr.update(interactive=False), vis_img
-
-def run_inference_step1(clean_image, text_prompt, boxes, labels):
+def run_inference_step1(clean_image, text_prompt, boxes, labels, class_name_override):
     """Step 1: Run Inference and switch screens."""
-    print(f"🖱️ Run Inference Clicked! Prompt: '{text_prompt}', Boxes: {len(boxes)}")
+    print(f"🖱️ Run Inference Clicked! Prompt: '{text_prompt}', Override: '{class_name_override}', Boxes: {len(boxes)}")
     
     if clean_image is None: 
         raise gr.Error("Please upload an image.")
@@ -127,7 +30,7 @@ def run_inference_step1(clean_image, text_prompt, boxes, labels):
     controller.set_image(clean_image)
     
     try:
-        candidates = controller.search_and_add(text_prompt, boxes, labels)
+        candidates = controller.search_and_add(text_prompt, boxes, labels, class_name_override)
         print(f"✅ Search returned {len(candidates)} candidates.")
     except Exception as e:
         print(f"❌ Error during search: {e}")
@@ -182,10 +85,6 @@ def on_gallery_select(evt: gr.SelectData, selected_indices, candidates):
     if base_img is None: return gr.update(), gr.update(), selected_indices
     
     preview_img = base_img.copy()
-    
-    # We want to show ALL masks, but highlight selected ones
-    # Or just show selected ones? User said "highlight the mask in the overview image when selecting"
-    # Let's show selected ones with high opacity, others with very low opacity
     
     if candidates:
         # Create two groups of masks
@@ -281,38 +180,131 @@ def add_to_store(candidates, selected_indices):
 # --- UI Layout ---
 
 custom_css="""
-#col-container { margin: 0 auto; max-width: 1100px; }
+#col-container { margin: 0 auto; max-width: 1400px; }
 #main-title h1 { font-size: 2.1em !important; }
 #input_image { position: relative; overflow: hidden; }
 #input_image button, #input_image img, #input_image canvas { cursor: crosshair !important; }
+.zoom-image img { transition: transform 0.1s ease-out; }
+
+/* Dataframe Font Size */
+.box-list-df td, .box-list-df th, .box-list-df td span, .box-list-df td input, .box-list-df td div { font-size: 10px !important; line-height: 1.0 !important; padding: 2px !important; }
+/* Hide Checkbox in Header for 'Del' column (assuming it's the first column) */
+thead th:first-child input[type="checkbox"] { display: none !important; }
+
+/* Column Widths */
+.box-list-df th:nth-child(1), .box-list-df td:nth-child(1) { width: 30px !important; min-width: 30px !important; }
+.box-list-df th:nth-child(2), .box-list-df td:nth-child(2) { width: 80px !important; }
+
+/* Export Status Font Size */
+#export-status textarea { font-size: 0.8em !important; }
+
+/* Horizontal Radio Buttons */
+.horizontal-radio .wrap { display: flex !important; flex-direction: row !important; gap: 10px !important; }
+.horizontal-radio label { margin-bottom: 0 !important; align-items: center !important; }
+.horizontal-radio span { font-size: 0.8em !important; }
+
+/* Scrollable Radio List */
+.scrollable-radio { max-height: 200px !important; overflow-y: auto !important; border: 1px solid #e5e7eb; padding: 5px; border-radius: 5px; }
+
+/* Gallery Adjustments */
+.candidate-gallery { min-height: 300px; }
+.candidate-gallery .grid-wrap { overflow-x: hidden !important; }
+.candidate-gallery .gallery-item { padding: 2px !important; }
 """
 
-crosshair_js = """
-function setupCrosshair() {
-    const c = document.querySelector('#input_image');
-    if (!c) { setTimeout(setupCrosshair, 200); return; }
-    if (c.dataset.setup) return;
-    c.dataset.setup = "true";
-    c.style.position = 'relative';
+# JS for Crosshair and Zoom
+custom_js = """
+function setupInteractions() {
+    // Crosshair Logic
+    const setupCrosshair = () => {
+        const c = document.querySelector('#input_image');
+        if (c && !c.dataset.crosshairSetup) {
+            c.dataset.crosshairSetup = "true";
+            c.style.position = 'relative';
 
-    const createLine = (id, isH) => {
-        let l = document.createElement('div');
-        l.style.cssText = `position:absolute;background:cyan;pointer-events:none;z-index:10000;display:none;box-shadow:0 0 2px rgba(0,0,0,0.5);${isH ? 'height:1px;width:100%;' : 'width:1px;height:100%;top:0;'}`;
-        c.appendChild(l);
-        return l;
+            const createLine = (id, isH) => {
+                let l = document.createElement('div');
+                l.style.cssText = `position:absolute;background:cyan;pointer-events:none;z-index:10000;display:none;box-shadow:0 0 2px rgba(0,0,0,0.5);${isH ? 'height:1px;width:100%;' : 'width:1px;height:100%;top:0;'}`;
+                c.appendChild(l);
+                return l;
+            };
+            const h = createLine('h', true), v = createLine('v', false);
+
+            c.addEventListener('mousemove', (e) => {
+                const r = c.getBoundingClientRect();
+                const x = e.clientX - r.left, y = e.clientY - r.top;
+                if (x >= 0 && x <= r.width && y >= 0 && y <= r.height) {
+                    h.style.display = v.style.display = 'block';
+                    h.style.top = (y - 2) + 'px';
+                    v.style.left = (x - 2) + 'px';
+                } else { h.style.display = v.style.display = 'none'; }
+            });
+            c.addEventListener('mouseleave', () => { h.style.display = v.style.display = 'none'; });
+        }
     };
-    const h = createLine('h', true), v = createLine('v', false);
 
-    c.addEventListener('mousemove', (e) => {
-        const r = c.getBoundingClientRect();
-        const x = e.clientX - r.left, y = e.clientY - r.top;
-        if (x >= 0 && x <= r.width && y >= 0 && y <= r.height) {
-            h.style.display = v.style.display = 'block';
-            h.style.top = (y - 2) + 'px';
-            v.style.left = (x - 2) + 'px';
-        } else { h.style.display = v.style.display = 'none'; }
+    // Zoom Logic
+    const setupZoom = () => {
+        document.querySelectorAll('.zoom-image').forEach(container => {
+            if (container.dataset.zoomSetup) return;
+            container.dataset.zoomSetup = "true";
+            container.style.overflow = 'hidden';
+            
+            let scale = 1, pointX = 0, pointY = 0, startX = 0, startY = 0, isDragging = false;
+
+            container.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                const img = container.querySelector('img');
+                if (!img) return;
+                
+                img.style.transformOrigin = "0 0";
+                img.style.transition = "transform 0.1s ease-out";
+
+                const rect = container.getBoundingClientRect();
+                const xs = (e.clientX - rect.left - pointX) / scale;
+                const ys = (e.clientY - rect.top - pointY) / scale;
+                
+                const delta = -e.deltaY;
+                (delta > 0) ? (scale *= 1.2) : (scale /= 1.2);
+                if (scale < 1) scale = 1;
+
+                pointX = e.clientX - rect.left - xs * scale;
+                pointY = e.clientY - rect.top - ys * scale;
+
+                img.style.transform = `translate(${pointX}px, ${pointY}px) scale(${scale})`;
+            });
+            
+            // Panning
+            container.addEventListener('mousedown', (e) => {
+                isDragging = true;
+                startX = e.clientX - pointX;
+                startY = e.clientY - pointY;
+            });
+            
+            window.addEventListener('mousemove', (e) => {
+                if (!isDragging) return;
+                e.preventDefault();
+                const img = container.querySelector('img');
+                if (!img) return;
+                
+                pointX = e.clientX - startX;
+                pointY = e.clientY - startY;
+                img.style.transform = `translate(${pointX}px, ${pointY}px) scale(${scale})`;
+            });
+
+            window.addEventListener('mouseup', () => { isDragging = false; });
+        });
+    };
+
+    // Observer
+    const observer = new MutationObserver(() => {
+        setupCrosshair();
+        setupZoom();
     });
-    c.addEventListener('mouseleave', () => { h.style.display = v.style.display = 'none'; });
+    observer.observe(document.body, { childList: true, subtree: true });
+    
+    setupCrosshair();
+    setupZoom();
 }
 """
 
@@ -339,47 +331,71 @@ with gr.Blocks() as demo:
         
         # --- SCREEN 1: INPUT ---
         with gr.Column(visible=True) as input_screen:
+            gr.Markdown("### Generate initial objects")
             with gr.Row():
-                with gr.Column(scale=2):
+                # Left Column: Image
+                with gr.Column(scale=3):
                     img_input = gr.Image(
                         label="1. Upload Image & Click 2 Points for Box", 
                         type="pil", 
-                        height=500,
+                        height=600,
                         interactive=True,
-                        elem_id="input_image"
+                        elem_id="input_image",
+                        elem_classes="zoom-image"
                     )
-                    
-                    with gr.Row():
-                        box_type = gr.Radio(["Include Area", "Exclude Area"], value="Include Area", label="Box Type")
-                        undo_click_btn = gr.Button("Undo Last Click", variant="secondary")
                 
+                # Right Column: Controls
                 with gr.Column(scale=1):
-                    gr.Markdown("### 2. Prompt Settings")
-                    txt_prompt = gr.Textbox(label="Text Prompt", placeholder="e.g. cat, car")
+                    # Box Controls (Top Right)
+                    with gr.Group():
+                        # gr.Markdown("### Box Controls") # Removed header
+                        box_type = gr.Radio(["Include Area", "Exclude Area"], value="Include Area", label="Box Type", elem_classes="horizontal-radio")
+                        undo_click_btn = gr.Button("Undo Last Click", variant="secondary", size="sm")
                     
-                    gr.Markdown("### 3. Box List")
+                    gr.Markdown("---")
+                    
+                    # Box List (Moved here)
+                    gr.Markdown("")
+                    # [Delete?, Type, x1, y1, x2, y2]
                     box_list_display = gr.Dataframe(
-                        headers=["Index", "Type", "Coordinates"], 
-                        datatype=["number", "str", "str"],
-                        interactive=False,
-                        label="Added Boxes"
+                        headers=["Del", "Type", "x1", "y1", "x2", "y2"], 
+                        datatype=["bool", "str", "number", "number", "number", "number"],
+                        column_count=(6, "fixed"),
+                        interactive=True,
+                        label="Added Boxes",
+                        wrap=True,
+                        elem_classes="box-list-df"
                     )
-                    delete_box_btn = gr.Button("Delete Selected Box", variant="stop", interactive=False)
+                    delete_box_btn = gr.Button("Delete Checked Boxes", variant="stop", size="sm")
+                    
+                    gr.Markdown("---")
+                    
+                    # Prompt
+                    gr.Markdown("")
+                    with gr.Row():
+                        txt_prompt = gr.Textbox(label="Text Prompt", placeholder="e.g. cat, car", show_label=True, scale=2)
+                        txt_class_name = gr.Textbox(label="Class Name Override", placeholder="Optional", show_label=True, scale=1)
                     
                     run_btn = gr.Button("Run Inference", variant="primary", size="lg")
 
         # --- SCREEN 2: RESULTS ---
         with gr.Column(visible=False) as result_screen:
-            gr.Markdown("### Inference Results")
+            gr.Markdown("### Select relevant objects")
             
             with gr.Row():
-                with gr.Column(scale=2):
+                with gr.Column(scale=3):
                     # Preview Image with ALL masks
-                    preview_image = gr.Image(label="Selected Candidates Preview", type="pil", interactive=False)
+                    preview_image = gr.Image(
+                        label="Selected Candidates Preview", 
+                        type="pil", 
+                        interactive=False,
+                        elem_classes="zoom-image",
+                        height=600
+                    )
                     
                 with gr.Column(scale=1):
                     # Gallery of crops
-                    results_gallery = gr.Gallery(label="Found Candidates (Click to Select)", columns=3, height=300, object_fit="contain", allow_preview=False)
+                    results_gallery = gr.Gallery(label="Found Candidates (Click to Select)", columns=3, height=300, object_fit="contain", allow_preview=False, elem_classes="candidate-gallery")
                     
                     # Selection List
                     with gr.Row():
@@ -388,9 +404,9 @@ with gr.Blocks() as demo:
                     with gr.Row():
                         confirm_btn = gr.Button("Add Selected to Store", variant="primary")
 
-        # --- SCREEN 3: EDITOR ---
+                # --- SCREEN 3: EDITOR ---
         with gr.Column(visible=False) as editor_screen:
-            gr.Markdown("### 3. Refine Masks")
+            gr.Markdown("### Refine individual objects")
             
             with gr.Row():
                 with gr.Column(scale=3):
@@ -398,34 +414,39 @@ with gr.Blocks() as demo:
                     refine_image = gr.Image(
                         label="Click to Refine",
                         type="pil",
-                        interactive=True,
-                        height=600
+                        interactive=False,
+                        height=600,
+                        elem_classes="zoom-image"
                     )
                     
-                    with gr.Row():
-                        undo_btn = gr.Button("Undo Last Click", variant="secondary")
-                        # Explicit Radio for Mode
-                        click_mode = gr.Radio(["Include (Green)", "Exclude (Red)"], value="Include (Green)", label="Click Mode", interactive=True)
+                    # Moved Export Status here
+                    export_status = gr.Textbox(label="Export Status", interactive=False, elem_id="export-status", lines=3)
                 
                 with gr.Column(scale=1):
-                    gr.Markdown("### Objects in Store")
+                    gr.Markdown("")
                     
                     with gr.Row():
                         object_list = gr.Radio(
                             label="Select Object",
                             choices=[],
-                            interactive=True
+                            interactive=True,
+                            elem_classes="scrollable-radio"
                         )
                     
                     with gr.Row():
-                        revert_btn = gr.Button("Revert", size="sm", variant="secondary") # Icon replacement
-                        delete_btn = gr.Button("Delete", size="sm", variant="stop")      # Icon replacement
+                        # revert_btn = gr.Button("Revert", size="sm", variant="secondary") # Moved below
+                        delete_btn = gr.Button("Delete", size="sm", variant="stop")      
                     
-                    gr.Markdown("### Actions")
+                    gr.Markdown("")
+                    with gr.Row():
+                        click_mode = gr.Radio(["Include (Green)", "Exclude (Red)"], value="Include (Green)", label="Click Mode", interactive=True, elem_classes="horizontal-radio", scale=2)
+                        undo_btn = gr.Button("Undo Last Click", variant="secondary", size="sm", scale=1)
+                    
+                    revert_btn = gr.Button("Revert Object", size="sm", variant="secondary")
+
+                    gr.Markdown("")
                     export_btn = gr.Button("Export Results (YOLO)", variant="primary")
-                    export_status = gr.Textbox(label="Export Status", interactive=False)
-                    
-                    # restart_btn = gr.Button("Start Over", variant="secondary")
+                    # export_status was here
 
     # --- Helper Functions for Editor ---
     
@@ -437,7 +458,9 @@ with gr.Blocks() as demo:
         # Create choices for Radio
         choices = []
         for obj_id, obj in controller.store.objects.items():
-            choices.append((f"{obj.class_name} ({obj_id[:4]}...)", obj_id))
+            # Limit ID display to first 4 chars
+            display_id = obj_id[:4]
+            choices.append((f"{obj.class_name} ({display_id})", obj_id))
             
         # Determine selection
         if selected_obj_id is None and choices:
@@ -448,20 +471,33 @@ with gr.Blocks() as demo:
         # Create overlay
         overlay_img = base_img.copy()
         
+        draw = ImageDraw.Draw(overlay_img)
+        # Load font
+        try:
+            font = ImageFont.truetype("arial.ttf", 20)
+        except:
+            font = ImageFont.load_default()
+
         if selected_obj_id and selected_obj_id in controller.store.objects:
-            # Show ONLY selected object
+            # Show ONLY selected object (as per original logic)
+            
             obj = controller.store.objects[selected_obj_id]
             mask = obj.binary_mask
             overlay_img = apply_mask_overlay(base_img, np.array([mask]), opacity=0.6)
             
             # Draw Points
-            from PIL import ImageDraw
             draw = ImageDraw.Draw(overlay_img)
             radius = 5
             for pt, lbl in zip(obj.input_points, obj.input_labels):
                 color = "#00FF00" if lbl == 1 else "#FF0000"
                 x, y = pt
                 draw.ellipse((x-radius, y-radius, x+radius, y+radius), fill=color, outline="white")
+                
+            # Draw ID
+            bbox = get_bbox_from_mask(mask)
+            if bbox:
+                x, y = bbox[0], bbox[1]
+                draw.text((x, y - 20), selected_obj_id[:5], fill="white", font=font, stroke_width=2, stroke_fill="black")
         
         return overlay_img, gr.update(choices=choices, value=selected_obj_id)
 
@@ -503,49 +539,83 @@ with gr.Blocks() as demo:
     img_input.select(
         fn=on_input_image_select,
         inputs=[st_pending_point, st_boxes, st_labels, box_type, st_clean_input_image],
-        outputs=[img_input, st_pending_point, st_boxes, st_labels]
-    ).then(
-        fn=format_box_list,
-        inputs=[st_boxes, st_labels],
-        outputs=[box_list_display]
+        outputs=[img_input, st_pending_point, st_boxes, st_labels, box_list_display]
     )
     
     # 2b. Undo Click
     undo_click_btn.click(
         fn=undo_last_click,
         inputs=[st_pending_point, st_boxes, st_labels, st_clean_input_image],
-        outputs=[img_input, st_pending_point, st_boxes, st_labels]
-    ).then(
-        fn=format_box_list,
-        inputs=[st_boxes, st_labels],
-        outputs=[box_list_display]
+        outputs=[img_input, st_pending_point, st_boxes, st_labels, box_list_display]
     )
     
-    # 3. Delete Box
-    box_list_display.select(
-        fn=on_box_select,
-        inputs=[],
-        outputs=[st_selected_box_index, delete_box_btn]
+    # 3. Dataframe Edits
+    box_list_display.change(
+        fn=on_dataframe_change,
+        inputs=[box_list_display, st_clean_input_image],
+        outputs=[img_input, st_boxes, st_labels]
     )
     
+    # 3b. Delete Checked
     delete_box_btn.click(
-        fn=delete_box_wrapper,
-        inputs=[st_selected_box_index, st_boxes, st_labels, st_clean_input_image],
-        outputs=[st_boxes, st_labels, st_selected_box_index, delete_box_btn, img_input]
-    ).then(
-        fn=format_box_list,
-        inputs=[st_boxes, st_labels],
-        outputs=[box_list_display]
+        fn=delete_checked_boxes,
+        inputs=[box_list_display, st_clean_input_image],
+        outputs=[st_boxes, st_labels, box_list_display, img_input]
     )
     
-    # 4. Run Inference
+    # 4. Run Inference (Button + Enter)
+    run_inference_fn = lambda img, txt, boxes, labels, cls_name: run_inference_step1(img, txt, boxes, labels, cls_name)
+    
+    def start_inference(img, prompt):
+        if img is None:
+             raise gr.Error("Please upload an image.")
+        if not prompt:
+            raise gr.Error("Please enter a text prompt.")
+        return gr.update(value="Running Inference...", interactive=False)
+
     run_btn.click(
-        fn=lambda: gr.update(value="Running Inference...", interactive=False),
-        inputs=[],
+        fn=start_inference,
+        inputs=[st_clean_input_image, txt_prompt],
         outputs=[run_btn]
     ).then(
-        fn=run_inference_step1,
-        inputs=[st_clean_input_image, txt_prompt, st_boxes, st_labels],
+        fn=run_inference_fn,
+        inputs=[st_clean_input_image, txt_prompt, st_boxes, st_labels, txt_class_name],
+        outputs=[st_candidates, st_current_image, input_screen, result_screen]
+    ).then(
+        fn=render_results_step2,
+        inputs=[st_candidates, st_current_image],
+        outputs=[results_gallery, preview_image, st_selected_indices]
+    ).then(
+        fn=lambda: gr.update(value="Run Inference", interactive=True),
+        inputs=[],
+        outputs=[run_btn]
+    )
+    
+    txt_prompt.submit(
+        fn=start_inference,
+        inputs=[st_clean_input_image, txt_prompt],
+        outputs=[run_btn]
+    ).then(
+        fn=run_inference_fn,
+        inputs=[st_clean_input_image, txt_prompt, st_boxes, st_labels, txt_class_name],
+        outputs=[st_candidates, st_current_image, input_screen, result_screen]
+    ).then(
+        fn=render_results_step2,
+        inputs=[st_candidates, st_current_image],
+        outputs=[results_gallery, preview_image, st_selected_indices]
+    ).then(
+        fn=lambda: gr.update(value="Run Inference", interactive=True),
+        inputs=[],
+        outputs=[run_btn]
+    )
+
+    txt_class_name.submit(
+        fn=start_inference,
+        inputs=[st_clean_input_image, txt_prompt],
+        outputs=[run_btn]
+    ).then(
+        fn=run_inference_fn,
+        inputs=[st_clean_input_image, txt_prompt, st_boxes, st_labels, txt_class_name],
         outputs=[st_candidates, st_current_image, input_screen, result_screen]
     ).then(
         fn=render_results_step2,
@@ -570,9 +640,6 @@ with gr.Blocks() as demo:
         inputs=[st_selected_indices, st_candidates],
         outputs=[preview_image, results_gallery, st_selected_indices]
     )
-    
-    # 4. Back Button (Removed)
-    # back_btn.click(...)
     
     # 5. Confirm Selection -> Go to Editor
     confirm_btn.click(
@@ -623,10 +690,7 @@ with gr.Blocks() as demo:
     )
     
     # Load JS
-    demo.load(None, None, None, js=crosshair_js)
-    
-    # 7. Restart (Removed)
-    # restart_btn.click(...)
+    demo.load(None, None, None, js=custom_js)
 
 if __name__ == "__main__":
     demo.launch(css=custom_css, theme=app_theme, ssr_mode=False, mcp_server=True, show_error=True)

@@ -34,7 +34,7 @@ def test_controller_flow():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     
     # 1. Setup Image
-    img_path = "/home/gp/Github/SAM3_simple_annotator/example_img/DEPAL1_2025-11-28_12-31-29.710_81822238-07b7-4b4a-830b-5ab0e5272dbb.Color.png"
+    img_path = "/home/gp/Github/SAM3_image_annotator/example_img/DEPAL1_2025-11-28_12-31-29.710_81822238-07b7-4b4a-830b-5ab0e5272dbb.Color.png"
     if not os.path.exists(img_path):
         print(f"❌ Image not found at {img_path}")
         return

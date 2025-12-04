@@ -78,11 +78,12 @@ This project provides a Gradio interface for image annotation using the SAM3 mod
 
 ## Project Structure
 
-- `app.py`: Main Gradio application entry point.
+- `app.py`: Main Gradio application entry point and UI definition.
 - `src/`: Source code for the application logic.
-  - `controller.py`: Manages application state.
+  - `controller.py`: Manages application state and business logic.
   - `inference.py`: Handles model loading and inference (SAM3).
-  - `models.py`: Model definitions.
+  - `schemas.py`: Pydantic data models for type safety.
+  - `view_helpers.py`: UI-specific helper functions and event handlers.
   - `theme.py`: Custom UI theme.
-  - `utils.py`: Helper functions for image processing.
+  - `utils.py`: General helper functions for image processing.
 - `requirements.txt`: Python dependencies.
