@@ -17,7 +17,7 @@ def test_ui_flow():
     print("🚀 Starting UI Callback Test...")
     
     # 1. Setup Image
-    img_path = "/home/gp/Github/SAM3_simple_annotator/example_img/DEPAL1_2025-11-28_12-31-29.710_81822238-07b7-4b4a-830b-5ab0e5272dbb.Color.png"
+    img_path = "/home/gp/Github/SAM3_image_annotator/example_img/DEPAL1_2025-11-28_12-31-29.710_81822238-07b7-4b4a-830b-5ab0e5272dbb.Color.png"
     if not os.path.exists(img_path):
         print(f"❌ Image not found at {img_path}")
         return
@@ -41,7 +41,7 @@ def test_ui_flow():
     try:
         # Step 1
         candidates, current_image, input_vis, result_vis = run_inference_step1(
-            image_input, prompt, boxes, labels
+            image_input, prompt, boxes, labels, None
         )
         print(f"✅ Step 1 returned successfully.")
         print(f"   Candidates found: {len(candidates)}")
@@ -61,12 +61,12 @@ def test_ui_flow():
         if isinstance(preview_img, dict) and 'value' in preview_img:
             real_img = preview_img['value']
             if real_img:
-                real_img.save("test_output/05_ui_preview_overlay.png")
+                real_img.save("test_output/05_ui_preview_overlay.png") # type: ignore
                 print(f"   💾 Saved preview overlay to test_output/05_ui_preview_overlay.png")
             else:
                 print("   ❌ Preview image value is None")
         elif hasattr(preview_img, 'save'):
-             preview_img.save("test_output/05_ui_preview_overlay.png")
+             preview_img.save("test_output/05_ui_preview_overlay.png") # type: ignore
              print(f"   💾 Saved preview overlay to test_output/05_ui_preview_overlay.png")
         else:
             print(f"   ❌ Preview image is unexpected type: {type(preview_img)}")
@@ -119,8 +119,10 @@ def test_ui_flow():
             print("❌ init_editor returned None image")
             
         print(f"   Radio update: {radio_update}")
-        if hasattr(radio_update, 'kwargs') and 'choices' in radio_update.kwargs:
-             print(f"   Radio choices: {radio_update.kwargs['choices']}")
+        if isinstance(radio_update, dict) and 'choices' in radio_update:
+             print(f"   Radio choices: {radio_update['choices']}")
+        elif hasattr(radio_update, 'kwargs') and 'choices' in radio_update.kwargs: # type: ignore
+             print(f"   Radio choices: {radio_update.kwargs['choices']}") # type: ignore
              
     except Exception as e:
         print(f"❌ init_editor failed: {e}")
@@ -132,14 +134,17 @@ def test_ui_flow():
         obj_id = list(controller.store.objects.keys())[0]
         try:
             revert_res = revert_object_refinement(obj_id)
-            print(f"✅ revert_object_refinement returned image: {revert_res.size if revert_res else 'None'}")
+            if hasattr(revert_res, 'size'):
+                print(f"✅ revert_object_refinement returned image: {revert_res.size}") # type: ignore
+            else:
+                print(f"✅ revert_object_refinement returned: {revert_res}")
         except Exception as e:
             print(f"❌ revert_object_refinement failed: {e}")
             
     # 6. Test Export (UI Wrapper)
     print("\n🔹 Testing export_results...")
     try:
-        export_msg = export_results()
+        export_msg = export_results("test_output")
         print(f"✅ export_results returned: {export_msg}")
     except Exception as e:
         print(f"❌ export_results failed: {e}")

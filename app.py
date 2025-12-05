@@ -86,7 +86,7 @@ def on_gallery_select(evt: gr.SelectData, selected_indices, candidates):
     base_img = controller.current_image
     if base_img is None: return gr.update(), gr.update(), selected_indices
     
-    preview_img = base_img.copy()
+    preview_img = base_img.copy() # type: ignore
     
     if candidates:
         # Create two groups of masks
@@ -123,7 +123,9 @@ def select_all_candidates(candidates):
     # Trigger update logic (reuse on_gallery_select logic or duplicate?)
     # Let's just call the update logic manually
     base_img = controller.current_image
-    preview_img = base_img.copy()
+    if base_img is None: return gr.update(), gr.update(), all_indices
+    
+    preview_img = base_img.copy() # type: ignore
     
     all_masks = [c.binary_mask for c in candidates]
     if all_masks:
@@ -154,10 +156,10 @@ def revert_object_refinement(obj_id):
     controller.revert_object(obj_id)
     return init_editor(obj_id)[0]
 
-def export_results():
+def export_results(output_path):
     """Export results to output folder."""
     try:
-        res = controller.export_data("output_dataset")
+        res = controller.export_data(output_path)
         if res:
             _, msg = res
             return msg
@@ -375,7 +377,7 @@ with gr.Blocks() as demo:
                     box_list_display = gr.Dataframe(
                         headers=["Del", "Type", "x1", "y1", "x2", "y2"], 
                         datatype=["bool", "str", "number", "number", "number", "number"],
-                        column_count=(6, "fixed"),
+                        column_count=6,
                         interactive=True,
                         label="Added Boxes",
                         wrap=True,
@@ -439,8 +441,10 @@ with gr.Blocks() as demo:
                     project_status_display = gr.JSON(label="Current Annotations", value={})
                     
                     with gr.Row():
-                        export_btn = gr.Button("Export Results (YOLO)", variant="secondary")
-                        export_status = gr.Textbox(label="Export Status", interactive=False, elem_id="export-status", lines=1)
+                        txt_output_dir = gr.Textbox(label="Output Folder", value="output", scale=2)
+                        export_btn = gr.Button("Export Results (YOLO)", variant="secondary", scale=1)
+                    
+                    export_status = gr.Textbox(label="Export Status", interactive=False, elem_id="export-status", lines=1)
 
                 with gr.Column(scale=1):
                     gr.Markdown("")
@@ -593,6 +597,7 @@ with gr.Blocks() as demo:
 
     start_btn.click(
         fn=start_session,
+        inputs=[],
         outputs=[setup_screen, input_screen, img_input, st_clean_input_image, st_boxes, st_labels, st_pending_point, nav_status]
     )
     
@@ -767,7 +772,7 @@ with gr.Blocks() as demo:
     
     export_btn.click(
         fn=export_results,
-        inputs=[],
+        inputs=[txt_output_dir],
         outputs=[export_status]
     )
     
