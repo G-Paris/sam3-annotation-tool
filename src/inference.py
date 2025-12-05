@@ -59,16 +59,49 @@ def search_objects(selector_input: SelectorInput) -> list[ObjectState]:
     if _IMG_MODEL is None: load_models()
     
     image = selector_input.image.convert("RGB")
+    original_w, original_h = image.size
+    
+    # Handle Cropping
+    crop_offset_x, crop_offset_y = 0, 0
+    if selector_input.crop_box:
+        cx1, cy1, cx2, cy2 = selector_input.crop_box
+        
+        # Ensure valid crop within image bounds
+        cx1 = max(0, cx1)
+        cy1 = max(0, cy1)
+        cx2 = min(original_w, cx2)
+        cy2 = min(original_h, cy2)
+        
+        if cx2 > cx1 and cy2 > cy1:
+            image = image.crop((cx1, cy1, cx2, cy2))
+            crop_offset_x, crop_offset_y = cx1, cy1
+            print(f"✂️ Cropped image to: {image.size} (Offset: {crop_offset_x}, {crop_offset_y})")
     
     # Prepare inputs
     input_boxes = None
     input_labels = None
     
     if selector_input.input_boxes:
+        # Adjust boxes to crop coordinates
+        adjusted_boxes = []
+        for box in selector_input.input_boxes:
+            bx1, by1, bx2, by2 = box
+            # Subtract offset
+            bx1 -= crop_offset_x
+            by1 -= crop_offset_y
+            bx2 -= crop_offset_x
+            by2 -= crop_offset_y
+            # Clip to crop bounds (0 to crop_w/h)
+            crop_w, crop_h = image.size
+            bx1 = max(0, min(crop_w, bx1))
+            by1 = max(0, min(crop_h, by1))
+            bx2 = max(0, min(crop_w, bx2))
+            by2 = max(0, min(crop_h, by2))
+            
+            adjusted_boxes.append([float(bx1), float(by1), float(bx2), float(by2)])
+            
         # SAM3 expects [[ [x1, y1, x2, y2], ... ]] for batch size 1
-        # Ensure float for model
-        boxes_float = [[float(c) for c in box] for box in selector_input.input_boxes]
-        input_boxes = [boxes_float]
+        input_boxes = [adjusted_boxes]
         
         if selector_input.input_labels:
              # Shape: (Batch, N_boxes) -> [[1, 0, ...]]
@@ -109,6 +142,17 @@ def search_objects(selector_input: SelectorInput) -> list[ObjectState]:
     if raw_masks.ndim == 4: raw_masks = raw_masks.squeeze(1)
     
     for idx, mask in enumerate(raw_masks):
+        # mask is boolean/binary for the CROPPED image
+        
+        # Restore to full size if cropped
+        if selector_input.crop_box:
+            full_mask = np.zeros((original_h, original_w), dtype=bool)
+            # Paste cropped mask back
+            # mask shape is (crop_h, crop_w)
+            mh, mw = mask.shape
+            full_mask[crop_offset_y:crop_offset_y+mh, crop_offset_x:crop_offset_x+mw] = mask
+            mask = full_mask
+            
         anchor_box = get_bbox_from_mask(mask)
         if anchor_box is None: continue
         
@@ -130,13 +174,58 @@ def refine_object(image: Image.Image, obj_state: ObjectState) -> np.ndarray:
     """
     if _TRK_MODEL is None: load_models()
     
+    original_w, original_h = image.size
     image = image.convert("RGB")
     
-    # Prepare inputs
-    # Ensure floats for model
-    box_float = [float(x) for x in obj_state.anchor_box]
-    points_float = [[float(p[0]), float(p[1])] for p in obj_state.input_points]
+    # --- Dynamic Cropping Logic ---
+    # 1. Determine bounding box of interest (Anchor Box + All Input Points)
+    x1, y1, x2, y2 = obj_state.anchor_box
     
+    if obj_state.input_points:
+        for pt in obj_state.input_points:
+            px, py = pt
+            x1 = min(x1, px)
+            y1 = min(y1, py)
+            x2 = max(x2, px)
+            y2 = max(y2, py)
+            
+    # 2. Add Padding (25%)
+    width = x2 - x1
+    height = y2 - y1
+    padding = int(max(width, height) * 0.25)
+    
+    cx1 = max(0, int(x1 - padding))
+    cy1 = max(0, int(y1 - padding))
+    cx2 = min(original_w, int(x2 + padding))
+    cy2 = min(original_h, int(y2 + padding))
+    
+    crop_offset_x, crop_offset_y = cx1, cy1
+    
+    # 3. Crop Image
+    if cx2 > cx1 and cy2 > cy1:
+        image = image.crop((cx1, cy1, cx2, cy2))
+        # print(f"✂️ Refiner Cropped to: {image.size} (Offset: {crop_offset_x}, {crop_offset_y})")
+    else:
+        # Fallback if invalid crop (shouldn't happen)
+        crop_offset_x, crop_offset_y = 0, 0
+        
+    # --- Coordinate Adjustment ---
+    
+    # Adjust Anchor Box
+    ax1, ay1, ax2, ay2 = obj_state.anchor_box
+    box_float = [
+        float(ax1 - crop_offset_x), 
+        float(ay1 - crop_offset_y), 
+        float(ax2 - crop_offset_x), 
+        float(ay2 - crop_offset_y)
+    ]
+    
+    # Adjust Points
+    points_float = []
+    for p in obj_state.input_points:
+        points_float.append([float(p[0] - crop_offset_x), float(p[1] - crop_offset_y)])
+    
+    # Prepare inputs
     input_boxes = [[box_float]]
     
     # Nesting for Sam3TrackerProcessor:
@@ -168,7 +257,13 @@ def refine_object(image: Image.Image, obj_state: ObjectState) -> np.ndarray:
         binarize=True
     )[0]
     
-    final_mask = masks[0].numpy()
-    if final_mask.ndim == 3: final_mask = final_mask[0]
+    final_mask_crop = masks[0].numpy()
+    if final_mask_crop.ndim == 3: final_mask_crop = final_mask_crop[0]
+    
+    # --- Restore Mask to Full Size ---
+    final_mask = np.zeros((original_h, original_w), dtype=bool)
+    
+    mh, mw = final_mask_crop.shape
+    final_mask[crop_offset_y:crop_offset_y+mh, crop_offset_x:crop_offset_x+mw] = final_mask_crop
     
     return final_mask

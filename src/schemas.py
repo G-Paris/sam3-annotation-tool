@@ -9,6 +9,7 @@ class SelectorInput(BaseModel):
     class_name_override: Optional[str] = None
     input_boxes: List[List[int]] = []  # [[x1, y1, x2, y2], ...]
     input_labels: List[int] = []       # [1, 0, ...] 1=Include, 0=Exclude
+    crop_box: Optional[List[int]] = None # [x1, y1, x2, y2]
     
 class ObjectState(BaseModel):
     object_id: str = Field(default_factory=lambda: str(uuid.uuid4()))

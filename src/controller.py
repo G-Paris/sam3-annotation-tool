@@ -76,7 +76,7 @@ class AppController:
         self.project = ProjectState()
 
         
-    def search_and_add(self, class_name: str, search_boxes: list[list[int]] = [], search_labels: list[int] = [], class_name_override: str = None):
+    def search_and_add(self, class_name: str, search_boxes: list[list[int]] = [], search_labels: list[int] = [], class_name_override: str = None, crop_box: list[int] = None):
         if self.current_image is None: return []
         
         # Create SelectorInput
@@ -85,7 +85,8 @@ class AppController:
             text=class_name,
             class_name_override=class_name_override,
             input_boxes=search_boxes,
-            input_labels=search_labels
+            input_labels=search_labels,
+            crop_box=crop_box
         )
         
         candidates = search_objects(selector_input)

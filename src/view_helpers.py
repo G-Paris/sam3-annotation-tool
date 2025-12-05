@@ -3,7 +3,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 from src.controller import controller
 
-def draw_boxes_on_image(image, boxes, labels, pending_point=None):
+def draw_boxes_on_image(image, boxes, labels, pending_point=None, crop_box=None):
     """Helper to draw boxes and pending point on image."""
     if image is None: return None
     out_img = image.copy()
@@ -15,6 +15,12 @@ def draw_boxes_on_image(image, boxes, labels, pending_point=None):
     for box, label in zip(boxes, labels):
         color = "#00FF00" if label == 1 else "#FF0000" # Green for Include, Red for Exclude
         draw.rectangle(box, outline=color, width=3)
+        
+    # Draw crop box if exists
+    if crop_box:
+        draw.rectangle(crop_box, outline="blue", width=3)
+        # Add label
+        draw.text((crop_box[0], crop_box[1]-15), "CROP", fill="blue")
         
     # Draw pending point if exists
     if pending_point:
@@ -36,6 +42,13 @@ def format_box_list(boxes, labels):
         # [Delete?, Type, x1, y1, x2, y2]
         data.append([False, lbl, box[0], box[1], box[2], box[3]])
     return data
+
+def format_crop_box(crop_box):
+    """Format crop box for display in Dataframe."""
+    if not crop_box:
+        return []
+    # [Delete?, x1, y1, x2, y2]
+    return [[False, crop_box[0], crop_box[1], crop_box[2], crop_box[3]]]
 
 def parse_dataframe(df_data):
     """Parse dataframe back to boxes and labels."""
@@ -72,16 +85,52 @@ def parse_dataframe(df_data):
             
     return boxes, labels
 
-def on_dataframe_change(df_data, clean_img):
+def parse_crop_dataframe(df_data):
+    """Parse dataframe back to crop box."""
+    if df_data is None: return None
+    
+    values = []
+    if hasattr(df_data, 'values'):
+        if df_data.empty: return None
+        values = df_data.values.tolist()
+    else:
+        values = df_data
+        
+    if not values: return None
+    
+    # Take the first valid row
+    for row in values:
+        # row[0] is Delete?
+        if row[0]: return None # Deleted
+        
+        try:
+            # row[1-4] are coords (since no Type column)
+            box = [int(float(row[1])), int(float(row[2])), int(float(row[3])), int(float(row[4]))]
+            return box
+        except:
+            continue
+            
+    return None
+
+def on_dataframe_change(df_data, clean_img, crop_box):
     """Handle changes in the dataframe (edits)."""
     if clean_img is None: return gr.update(), [], []
     
     boxes, labels = parse_dataframe(df_data)
-    vis_img = draw_boxes_on_image(clean_img, boxes, labels, None)
+    vis_img = draw_boxes_on_image(clean_img, boxes, labels, None, crop_box)
     
     return vis_img, boxes, labels
 
-def delete_checked_boxes(df_data, clean_img):
+def on_crop_dataframe_change(df_data, clean_img, boxes, labels):
+    """Handle changes in the crop dataframe."""
+    if clean_img is None: return gr.update(), None
+    
+    crop_box = parse_crop_dataframe(df_data)
+    vis_img = draw_boxes_on_image(clean_img, boxes, labels, None, crop_box)
+    
+    return vis_img, crop_box
+
+def delete_checked_boxes(df_data, clean_img, crop_box):
     """Delete boxes that are checked."""
     if clean_img is None: return [], [], gr.update(), gr.update()
     
@@ -108,7 +157,7 @@ def delete_checked_boxes(df_data, clean_img):
                 except:
                     pass
 
-    vis_img = draw_boxes_on_image(clean_img, new_boxes, new_labels, None)
+    vis_img = draw_boxes_on_image(clean_img, new_boxes, new_labels, None, crop_box)
     new_df = format_box_list(new_boxes, new_labels)
     
     return new_boxes, new_labels, new_df, vis_img
@@ -137,9 +186,9 @@ def on_upload(files):
     
     return first_image, [], [], None # clean_img, boxes, labels, pending_pt
 
-def on_input_image_select(evt: gr.SelectData, pending_pt, boxes, labels, box_type, clean_img):
-    """Handle click on input image to define boxes."""
-    if clean_img is None: return gr.update(), pending_pt, boxes, labels, gr.update()
+def on_input_image_select(evt: gr.SelectData, pending_pt, boxes, labels, click_effect, clean_img, crop_box):
+    """Handle click on input image to define boxes or crop."""
+    if clean_img is None: return gr.update(), pending_pt, boxes, labels, gr.update(), crop_box, gr.update()
     
     x, y = evt.index
     
@@ -147,46 +196,55 @@ def on_input_image_select(evt: gr.SelectData, pending_pt, boxes, labels, box_typ
         # First point
         new_pending = (x, y)
         # Draw point
-        vis_img = draw_boxes_on_image(clean_img, boxes, labels, new_pending)
-        return vis_img, new_pending, boxes, labels, gr.update()
+        vis_img = draw_boxes_on_image(clean_img, boxes, labels, new_pending, crop_box)
+        return vis_img, new_pending, boxes, labels, gr.update(), crop_box, gr.update()
     else:
-        # Second point - Finalize box
+        # Second point - Finalize box or crop
         x1, y1 = pending_pt
         x2, y2 = x, y
         
         # Create box [x_min, y_min, x_max, y_max]
         bbox = [min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2)]
         
-        # Add to list
-        lbl = 1 if box_type == "Include Area" else 0
-        new_boxes = boxes + [bbox]
-        new_labels = labels + [lbl]
-        
-        # Draw all
-        vis_img = draw_boxes_on_image(clean_img, new_boxes, new_labels, None)
-        
-        # Update dataframe
-        new_df = format_box_list(new_boxes, new_labels)
-        
-        return vis_img, None, new_boxes, new_labels, new_df
+        if click_effect == "Crop Initial Image":
+            # Update crop box (overwrite)
+            new_crop_box = bbox
+            vis_img = draw_boxes_on_image(clean_img, boxes, labels, None, new_crop_box)
+            new_crop_df = format_crop_box(new_crop_box)
+            return vis_img, None, boxes, labels, gr.update(), new_crop_box, new_crop_df
+        else:
+            # Add to list (Include/Exclude)
+            lbl = 1 if click_effect == "Include Area" else 0
+            new_boxes = boxes + [bbox]
+            new_labels = labels + [lbl]
+            
+            # Draw all
+            vis_img = draw_boxes_on_image(clean_img, new_boxes, new_labels, None, crop_box)
+            
+            # Update dataframe
+            new_df = format_box_list(new_boxes, new_labels)
+            
+            return vis_img, None, new_boxes, new_labels, new_df, crop_box, gr.update()
 
-def undo_last_click(pending_pt, boxes, labels, clean_img):
+def undo_last_click(pending_pt, boxes, labels, clean_img, crop_box):
     """Undo the last click or remove the last box."""
-    if clean_img is None: return gr.update(), None, boxes, labels, gr.update()
+    if clean_img is None: return gr.update(), None, boxes, labels, gr.update(), crop_box, gr.update()
     
     # Case 1: Pending point exists (user clicked once) -> Clear it
     if pending_pt is not None:
         # Redraw only boxes
-        vis_img = draw_boxes_on_image(clean_img, boxes, labels, None)
-        return vis_img, None, boxes, labels, gr.update()
+        vis_img = draw_boxes_on_image(clean_img, boxes, labels, None, crop_box)
+        return vis_img, None, boxes, labels, gr.update(), crop_box, gr.update()
     
     # Case 2: No pending point, but boxes exist -> Remove last box
+    # Note: We don't undo crop box here easily unless we track history. 
+    # For now, let's assume undo only affects boxes stack.
     if boxes:
         boxes.pop()
         labels.pop()
-        vis_img = draw_boxes_on_image(clean_img, boxes, labels, None)
+        vis_img = draw_boxes_on_image(clean_img, boxes, labels, None, crop_box)
         new_df = format_box_list(boxes, labels)
-        return vis_img, None, boxes, labels, new_df
+        return vis_img, None, boxes, labels, new_df, crop_box, gr.update()
         
     # Case 3: Nothing to undo
-    return gr.update(), None, boxes, labels, gr.update()
+    return gr.update(), None, boxes, labels, gr.update(), crop_box, gr.update()

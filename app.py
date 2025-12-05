@@ -7,7 +7,8 @@ from src.inference import load_models
 from src.utils import apply_mask_overlay, draw_points_on_image, get_bbox_from_mask, create_mask_crop
 from src.view_helpers import (
     draw_boxes_on_image, format_box_list, parse_dataframe, on_dataframe_change,
-    delete_checked_boxes, on_upload, on_input_image_select, undo_last_click
+    delete_checked_boxes, on_upload, on_input_image_select, undo_last_click,
+    on_crop_dataframe_change, format_crop_box
 )
 
 # Load models immediately on startup
@@ -18,9 +19,9 @@ app_theme = CustomBlueTheme()
 # --- Helper Functions ---
 # (Moved to src/view_helpers.py)
 
-def run_inference_step1(clean_image, text_prompt, boxes, labels, class_name_override):
+def run_inference_step1(clean_image, text_prompt, boxes, labels, class_name_override, crop_box=None):
     """Step 1: Run Inference and switch screens."""
-    print(f"🖱️ Run Inference Clicked! Prompt: '{text_prompt}', Override: '{class_name_override}', Boxes: {len(boxes)}")
+    print(f"🖱️ Run Inference Clicked! Prompt: '{text_prompt}', Override: '{class_name_override}', Boxes: {len(boxes)}, Crop: {crop_box}")
     
     if clean_image is None: 
         raise gr.Error("Please upload an image.")
@@ -32,7 +33,7 @@ def run_inference_step1(clean_image, text_prompt, boxes, labels, class_name_over
         controller.set_image(clean_image)
     
     try:
-        candidates = controller.search_and_add(text_prompt, boxes, labels, class_name_override)
+        candidates = controller.search_and_add(text_prompt, boxes, labels, class_name_override, crop_box)
         print(f"✅ Search returned {len(candidates)} candidates.")
     except Exception as e:
         print(f"❌ Error during search: {e}")
@@ -42,8 +43,7 @@ def run_inference_step1(clean_image, text_prompt, boxes, labels, class_name_over
     return (
         candidates,
         clean_image,
-        gr.update(visible=False), # Hide Input
-        gr.update(visible=True)   # Show Results
+        gr.update(selected=2) # Switch to Results Tab
     )
 
 def render_results_step2(candidates, image):
@@ -179,7 +179,7 @@ def add_to_store(candidates, selected_indices):
     
     controller.add_candidates_to_store(candidates, selected_indices)
     
-    return "Added to Store!", gr.update(visible=False), gr.update(visible=True) # Go to Editor?
+    return "Added to Store!", gr.update(selected=3) # Go to Editor Tab
 
 # --- UI Layout ---
 
@@ -326,6 +326,7 @@ with gr.Blocks() as demo:
     
     st_clean_input_image = gr.State(None) # Store original uploaded image
     st_pending_point = gr.State(None) # Store first point of box click
+    st_crop_box = gr.State(None) # Store crop box [x1, y1, x2, y2]
     
     # Hidden status box for messages
     status_box = gr.Textbox(visible=False)
@@ -333,144 +334,165 @@ with gr.Blocks() as demo:
     with gr.Column(elem_id="col-container"):
         gr.Markdown("# **SAM3 Annotator**", elem_id="main-title")
         
-        # --- SCREEN 0: SETUP ---
-        with gr.Column(visible=True) as setup_screen:
-            gr.Markdown("### 1. Select Data Source")
-            upload_files = gr.File(label="Upload Folder", file_count="directory", file_types=["image"], height=200)
-            start_btn = gr.Button("Start Annotation", variant="primary", interactive=False)
+        with gr.Tabs() as tabs:
+            # --- SCREEN 0: SETUP ---
+            with gr.TabItem("Setup", id=0) as setup_screen:
+                gr.Markdown("### 1. Select Data Source")
+                upload_files = gr.File(label="Upload Folder", file_count="directory", file_types=["image"], height=200)
+                start_btn = gr.Button("Start Annotation", variant="primary", interactive=False)
 
-        # --- SCREEN 1: INPUT ---
-        with gr.Column(visible=False) as input_screen:
-            gr.Markdown("### Generate initial objects")
-            
-            # Navigation (Full Width)
-            with gr.Row():
-                prev_btn = gr.Button("Previous")
-                nav_status = gr.Textbox(label="Status", value="0/0", interactive=False, scale=2)
-                next_btn = gr.Button("Next")
+            # --- SCREEN 1: INPUT ---
+            with gr.TabItem("Input", id=1) as input_screen:
+                gr.Markdown("### Generate initial objects")
                 
-            with gr.Row():
-                # Left Column: Image
-                with gr.Column(scale=3):
-                    img_input = gr.Image(
-                        label="Current Image (Click 2 Points for Box)", 
-                        type="pil", 
-                        height=600,
-                        interactive=True,
-                        elem_id="input_image",
-                        elem_classes="zoom-image"
-                    )
+                # Navigation (Full Width)
+                with gr.Row():
+                    prev_btn = gr.Button("Previous")
+                    nav_status = gr.Textbox(label="Status", show_label=False, value="0/0", interactive=False, scale=2)
+                    next_btn = gr.Button("Next")
                 
-                # Right Column: Controls
-                with gr.Column(scale=1):
-                    # Box Controls (Top Right)
-                    with gr.Group():
-                        # gr.Markdown("### Box Controls") # Removed header
-                        box_type = gr.Radio(["Include Area", "Exclude Area"], value="Include Area", label="Box Type", elem_classes="horizontal-radio")
-                        undo_click_btn = gr.Button("Undo Last Click", variant="secondary", size="sm")
-                    
-                    gr.Markdown("---")
-                    
-                    # Box List (Moved here)
-                    gr.Markdown("")
-                    # [Delete?, Type, x1, y1, x2, y2]
-                    box_list_display = gr.Dataframe(
-                        headers=["Del", "Type", "x1", "y1", "x2", "y2"], 
-                        datatype=["bool", "str", "number", "number", "number", "number"],
-                        column_count=6,
-                        interactive=True,
-                        label="Added Boxes",
-                        wrap=True,
-                        elem_classes="box-list-df"
-                    )
-                    delete_box_btn = gr.Button("Delete Checked Boxes", variant="stop", size="sm")
-                    
-                    gr.Markdown("---")
-                    
-                    # Prompt
-                    gr.Markdown("")
-                    with gr.Row():
-                        txt_prompt = gr.Textbox(label="Text Prompt", placeholder="e.g. cat, car", show_label=True, scale=2)
-                        txt_class_name = gr.Textbox(label="Class Name Override", placeholder="Optional", show_label=True, scale=1)
-                    
-                    run_btn = gr.Button("Run Inference", variant="primary", size="lg")
+                # Prompt Row (Moved)
+                with gr.Row():
+                    txt_prompt = gr.Textbox(label="Text Prompt", placeholder="e.g. cat, car", show_label=True, scale=2)
+                    txt_class_name = gr.Textbox(label="Class Name Override", placeholder="Optional", show_label=True, scale=1)
 
-        # --- SCREEN 2: RESULTS ---
-        with gr.Column(visible=False) as result_screen:
-            gr.Markdown("### Select relevant objects")
-            
-            with gr.Row():
-                with gr.Column(scale=3):
-                    # Preview Image with ALL masks
-                    preview_image = gr.Image(
-                        label="Selected Candidates Preview", 
-                        type="pil", 
-                        interactive=False,
-                        elem_classes="zoom-image",
-                        height=600
-                    )
-                    
-                with gr.Column(scale=1):
-                    # Gallery of crops
-                    results_gallery = gr.Gallery(label="Found Candidates (Click to Select)", columns=3, height=300, object_fit="contain", allow_preview=False, elem_classes="candidate-gallery")
-                    
-                    # Selection List
-                    with gr.Row():
-                        select_all_btn = gr.Button("Select All", size="sm", variant="secondary")
-                        
-                    with gr.Row():
-                        confirm_btn = gr.Button("Add Selected to Store", variant="primary")
-
-                # --- SCREEN 3: EDITOR ---
-        with gr.Column(visible=False) as editor_screen:
-            gr.Markdown("### Refine individual objects")
-            
-            with gr.Row():
-                with gr.Column(scale=3):
-                    # Main interactive image for refinement
-                    refine_image = gr.Image(
-                        label="Click to Refine",
-                        type="pil",
-                        interactive=False,
-                        height=600,
-                        elem_classes="zoom-image"
-                    )
-                    
-                    # Project State Display
-                    gr.Markdown("### Project Status")
-                    project_status_display = gr.JSON(label="Current Annotations", value={})
-                    
-                    with gr.Row():
-                        txt_output_dir = gr.Textbox(label="Output Folder", value="output", scale=2)
-                        export_btn = gr.Button("Export Results (YOLO)", variant="secondary", scale=1)
-                    
-                    export_status = gr.Textbox(label="Export Status", interactive=False, elem_id="export-status", lines=1)
-
-                with gr.Column(scale=1):
-                    gr.Markdown("")
-                    
-                    with gr.Row():
-                        object_list = gr.Radio(
-                            label="Select Object",
-                            choices=[],
+                with gr.Row():
+                    # Left Column: Image
+                    with gr.Column(scale=3):
+                        img_input = gr.Image(
+                            label="Current Image (Click 2 Points for Box)", 
+                            type="pil", 
+                            height=600,
                             interactive=True,
-                            elem_classes="scrollable-radio"
+                            elem_id="input_image",
+                            elem_classes="zoom-image"
                         )
                     
-                    with gr.Row():
-                        # revert_btn = gr.Button("Revert", size="sm", variant="secondary") # Moved below
-                        delete_btn = gr.Button("Delete", size="sm", variant="stop")      
-                    
-                    gr.Markdown("")
-                    with gr.Row():
-                        click_mode = gr.Radio(["Include (Green)", "Exclude (Red)"], value="Include (Green)", label="Click Mode", interactive=True, elem_classes="horizontal-radio", scale=2)
-                        undo_btn = gr.Button("Undo Last Click", variant="secondary", size="sm", scale=1)
-                    
-                    revert_btn = gr.Button("Revert Object", size="sm", variant="secondary")
+                    # Right Column: Controls
+                    with gr.Column(scale=1):
+                        # Box Controls (Top Right)
+                        with gr.Group():
+                            # gr.Markdown("### Box Controls") # Removed header
+                            click_effect = gr.Radio(["Crop Initial Image", "Include Area", "Exclude Area"], value="Include Area", label="Click Effect")
+                            undo_click_btn = gr.Button("Undo Last Click", variant="secondary", size="sm")
+                        
+                        # Crop List
+                        crop_list_display = gr.Dataframe(
+                            headers=["Del", "x1", "y1", "x2", "y2"],
+                            datatype=["bool", "number", "number", "number", "number"],
+                            column_count=5,
+                            interactive=True,
+                            label="Crop Area (Model runs at 1024x1024)",
+                            wrap=True,
+                            elem_classes="box-list-df"
+                        )
 
-                    gr.Markdown("")
-                    finish_img_btn = gr.Button("Finish Image & Next", variant="primary")
-                    # export_btn was here
+                        # Box List (Moved here)
+                        gr.Markdown("")
+                        # [Delete?, Type, x1, y1, x2, y2]
+                        box_list_display = gr.Dataframe(
+                            headers=["Del", "Type", "x1", "y1", "x2", "y2"], 
+                            datatype=["bool", "str", "number", "number", "number", "number"],
+                            column_count=6,
+                            interactive=True,
+                            label="Added Boxes",
+                            wrap=True,
+                            elem_classes="box-list-df"
+                        )
+                        delete_box_btn = gr.Button("Delete Checked Boxes", variant="stop", size="sm")
+                        
+                        run_btn = gr.Button("Run Inference", variant="primary", size="lg")
+
+            # --- SCREEN 2: RESULTS ---
+            with gr.TabItem("Results", id=2) as result_screen:
+                with gr.Row():
+                    gr.Markdown("### Select relevant objects")
+                    result_img_counter = gr.Markdown("Image 0/0", elem_id="result-img-counter")
+
+                with gr.Row():
+                    with gr.Column(scale=3):
+                        # Preview Image with ALL masks
+                        preview_image = gr.Image(
+                            label="Selected Candidates Preview", 
+                            type="pil", 
+                            interactive=False,
+                            elem_classes="zoom-image",
+                            height=600
+                        )
+                        
+                    with gr.Column(scale=1):
+                        # Gallery of crops
+                        results_gallery = gr.Gallery(label="Found Candidates (Click to Select)", columns=3, height=300, object_fit="contain", allow_preview=False, elem_classes="candidate-gallery")
+                        
+                        # Selection List
+                        with gr.Row():
+                            select_all_btn = gr.Button("Select All", size="sm", variant="secondary")
+                            
+                        with gr.Row():
+                            confirm_btn = gr.Button("Add Selected to Store", variant="primary")
+                        
+                        with gr.Row():
+                            add_more_btn = gr.Button("Add Selected & Generate More", variant="secondary")
+
+            # --- SCREEN 3: EDITOR ---
+            with gr.TabItem("Editor", id=3) as editor_screen:
+                with gr.Row():
+                    gr.Markdown("### Refine individual objects")
+                    editor_img_counter = gr.Markdown("Image 0/0", elem_id="editor-img-counter")
+                
+                with gr.Row():
+                    with gr.Column(scale=3):
+                        # Main interactive image for refinement
+                        refine_image = gr.Image(
+                            label="Click to Refine",
+                            type="pil",
+                            interactive=False,
+                            height=600,
+                            elem_classes="zoom-image"
+                        )
+                        
+                        # Export moved to separate tab
+
+                    with gr.Column(scale=1):
+                        gr.Markdown("")
+                        
+                        with gr.Row():
+                            object_list = gr.Radio(
+                                label="Select Object",
+                                choices=[],
+                                interactive=True,
+                                elem_classes="scrollable-radio"
+                            )
+                        
+                        with gr.Row():
+                            # revert_btn = gr.Button("Revert", size="sm", variant="secondary") # Moved below
+                            delete_btn = gr.Button("Delete", size="sm", variant="stop")      
+                        
+                        gr.Markdown("")
+                        with gr.Row():
+                            click_mode = gr.Radio(["Include (Green)", "Exclude (Red)"], value="Include (Green)", label="Click Mode", interactive=True, elem_classes="horizontal-radio", scale=2)
+                            undo_btn = gr.Button("Undo Last Click", variant="secondary", size="sm", scale=1)
+                        
+                        revert_btn = gr.Button("Revert Object", size="sm", variant="secondary")
+
+                        gr.Markdown("")
+                        with gr.Row():
+                            finish_img_btn = gr.Button("Finish & Next Image", variant="primary")
+                            finish_save_btn = gr.Button("Finish (Save)", variant="secondary")
+
+            # --- SCREEN 4: EXPORT ---
+            with gr.TabItem("Export", id=4) as export_screen:
+                gr.Markdown("### Export Data")
+                
+                with gr.Row():
+                    with gr.Column():
+                        # Project State Display
+                        gr.Markdown("### Export Overview")
+                        export_status_display = gr.JSON(label="Ready for Export", value={})
+                        
+                        txt_output_dir = gr.Textbox(label="Output Folder", value="output")
+                        export_btn = gr.Button("Export Results (YOLO)", variant="primary")
+                        export_status = gr.Textbox(label="Export Status", interactive=False, elem_id="export-status", lines=5)
 
     # --- Helper Functions for Editor ---
     
@@ -585,20 +607,22 @@ with gr.Blocks() as demo:
         status = f"Image {controller.project.current_index + 1}/{len(controller.project.playlist)}"
         
         return (
-            gr.update(visible=False), # setup_screen
-            gr.update(visible=True),  # input_screen
-            gr.update(value=img), # img_input - Explicit update
+            gr.update(selected=1), # Switch to Input Tab
+            gr.update(value=img, interactive=True), # img_input - Explicit update
             img, # st_clean_input_image
             [], # st_boxes
             [], # st_labels
             None, # st_pending
-            status # nav_status
+            status, # nav_status
+            None, # st_crop_box
+            gr.update(value=[]), # crop_list_display
+            gr.update(value="Crop Initial Image") # click_effect
         )
 
     start_btn.click(
         fn=start_session,
         inputs=[],
-        outputs=[setup_screen, input_screen, img_input, st_clean_input_image, st_boxes, st_labels, st_pending_point, nav_status]
+        outputs=[tabs, img_input, st_clean_input_image, st_boxes, st_labels, st_pending_point, nav_status, st_crop_box, crop_list_display, click_effect]
     )
     
     # Navigation
@@ -625,33 +649,39 @@ with gr.Blocks() as demo:
     # 2. Click on Image (Add Box)
     img_input.select(
         fn=on_input_image_select,
-        inputs=[st_pending_point, st_boxes, st_labels, box_type, st_clean_input_image],
-        outputs=[img_input, st_pending_point, st_boxes, st_labels, box_list_display]
+        inputs=[st_pending_point, st_boxes, st_labels, click_effect, st_clean_input_image, st_crop_box],
+        outputs=[img_input, st_pending_point, st_boxes, st_labels, box_list_display, st_crop_box, crop_list_display]
     )
     
     # 2b. Undo Click
     undo_click_btn.click(
         fn=undo_last_click,
-        inputs=[st_pending_point, st_boxes, st_labels, st_clean_input_image],
-        outputs=[img_input, st_pending_point, st_boxes, st_labels, box_list_display]
+        inputs=[st_pending_point, st_boxes, st_labels, st_clean_input_image, st_crop_box],
+        outputs=[img_input, st_pending_point, st_boxes, st_labels, box_list_display, st_crop_box, crop_list_display]
     )
     
     # 3. Dataframe Edits
     box_list_display.change(
         fn=on_dataframe_change,
-        inputs=[box_list_display, st_clean_input_image],
+        inputs=[box_list_display, st_clean_input_image, st_crop_box],
         outputs=[img_input, st_boxes, st_labels]
+    )
+
+    crop_list_display.change(
+        fn=on_crop_dataframe_change,
+        inputs=[crop_list_display, st_clean_input_image, st_boxes, st_labels],
+        outputs=[img_input, st_crop_box]
     )
     
     # 3b. Delete Checked
     delete_box_btn.click(
         fn=delete_checked_boxes,
-        inputs=[box_list_display, st_clean_input_image],
+        inputs=[box_list_display, st_clean_input_image, st_crop_box],
         outputs=[st_boxes, st_labels, box_list_display, img_input]
     )
     
     # 4. Run Inference (Button + Enter)
-    run_inference_fn = lambda img, txt, boxes, labels, cls_name: run_inference_step1(img, txt, boxes, labels, cls_name)
+    run_inference_fn = lambda img, txt, boxes, labels, cls_name, crop: run_inference_step1(img, txt, boxes, labels, cls_name, crop)
     
     def start_inference(img, prompt):
         if img is None:
@@ -666,8 +696,8 @@ with gr.Blocks() as demo:
         outputs=[run_btn]
     ).then(
         fn=run_inference_fn,
-        inputs=[st_clean_input_image, txt_prompt, st_boxes, st_labels, txt_class_name],
-        outputs=[st_candidates, st_current_image, input_screen, result_screen]
+        inputs=[st_clean_input_image, txt_prompt, st_boxes, st_labels, txt_class_name, st_crop_box],
+        outputs=[st_candidates, st_current_image, tabs]
     ).then(
         fn=render_results_step2,
         inputs=[st_candidates, st_current_image],
@@ -684,8 +714,8 @@ with gr.Blocks() as demo:
         outputs=[run_btn]
     ).then(
         fn=run_inference_fn,
-        inputs=[st_clean_input_image, txt_prompt, st_boxes, st_labels, txt_class_name],
-        outputs=[st_candidates, st_current_image, input_screen, result_screen]
+        inputs=[st_clean_input_image, txt_prompt, st_boxes, st_labels, txt_class_name, st_crop_box],
+        outputs=[st_candidates, st_current_image, tabs]
     ).then(
         fn=render_results_step2,
         inputs=[st_candidates, st_current_image],
@@ -702,8 +732,8 @@ with gr.Blocks() as demo:
         outputs=[run_btn]
     ).then(
         fn=run_inference_fn,
-        inputs=[st_clean_input_image, txt_prompt, st_boxes, st_labels, txt_class_name],
-        outputs=[st_candidates, st_current_image, input_screen, result_screen]
+        inputs=[st_clean_input_image, txt_prompt, st_boxes, st_labels, txt_class_name, st_crop_box],
+        outputs=[st_candidates, st_current_image, tabs]
     ).then(
         fn=render_results_step2,
         inputs=[st_candidates, st_current_image],
@@ -732,7 +762,7 @@ with gr.Blocks() as demo:
     confirm_btn.click(
         fn=add_to_store_wrapper,
         inputs=[st_candidates, st_selected_indices],
-        outputs=[status_box, result_screen, editor_screen]
+        outputs=[status_box, tabs]
     ).then(
         fn=init_editor,
         inputs=[],
@@ -796,60 +826,212 @@ with gr.Blocks() as demo:
         
         return stats
 
+    # Helper for Export Status
+    def get_export_status():
+        if not controller.project: return {}
+        
+        # Map paths to indices
+        playlist_map = {path: i for i, path in enumerate(controller.project.playlist)}
+        
+        finished_images = []
+        total_objects = 0
+        
+        # Sort by index
+        sorted_annotations = sorted(
+            controller.project.annotations.items(),
+            key=lambda x: playlist_map.get(x[0], -1)
+        )
+        
+        for path, store in sorted_annotations:
+            idx = playlist_map.get(path, -1)
+            count = len(store.objects)
+            
+            # Only include images that have objects
+            if count == 0:
+                continue
+
+            # Include if it has objects or is in the annotations map (meaning visited/saved)
+            total_objects += count
+            name = path.split("/")[-1]
+            finished_images.append({
+                "index": idx + 1, # 1-based index for display
+                "filename": name,
+                "object_count": count
+            })
+                
+        return {
+            "total_objects_annotated": total_objects,
+            "finished_images_count": len(finished_images),
+            "finished_images_list": finished_images
+        }
+
+    # Helper to get current image counter string
+    def get_image_counter():
+        if not controller.project.playlist: return "Image 0/0"
+        return f"Image {controller.project.current_index + 1}/{len(controller.project.playlist)}"
+
     # Finish Image & Next
     def on_finish_image():
+        print("🏁 Finishing image...")
         # Ensure current state is saved before moving
         if controller.current_image_path:
             controller.project.annotations[controller.current_image_path] = controller.store
             
         img = controller.next_image()
-        status = f"Image {controller.project.current_index + 1}/{len(controller.project.playlist)}" if img else "Finished"
-        
-        # If no more images, stay on editor but maybe show alert? 
-        # For now, if img is None, we might have reached the end.
+        status = get_image_counter() if img else "Finished"
         
         if img:
+            print(f"➡️ Next image loaded: {controller.project.current_index}")
             return (
-                gr.update(visible=False), # editor_screen
-                gr.update(visible=True),  # input_screen
-                img, # img_input
+                gr.update(selected=1), # Switch to Input Tab
+                gr.update(value=img, interactive=True), # img_input
                 img, # st_clean_input_image
                 [], # st_boxes
                 [], # st_labels
                 None, # st_pending
                 status, # nav_status
-                get_project_status() # Update status display
+                None, # st_crop_box
+                gr.update(value=[]),  # crop_list_display
+                gr.update(value="Crop Initial Image"), # click_effect
+                get_export_status() # Update export status
             )
         else:
+            print("🛑 Playlist finished.")
             # End of playlist
             return (
-                gr.update(visible=True), # Stay on editor
-                gr.update(visible=False), 
+                gr.update(selected=3), # Stay on Editor Tab
                 gr.update(), 
                 gr.update(),
                 [], [], None, 
                 "Finished",
-                get_project_status()
+                gr.update(),
+                gr.update(),
+                gr.update(), # click_effect
+                get_export_status() # Update export status
             )
 
     finish_img_btn.click(
         fn=on_finish_image,
-        outputs=[editor_screen, input_screen, img_input, st_clean_input_image, st_boxes, st_labels, st_pending_point, nav_status, project_status_display]
+        outputs=[tabs, img_input, st_clean_input_image, st_boxes, st_labels, st_pending_point, nav_status, st_crop_box, crop_list_display, click_effect, export_status_display]
+    )
+    
+    # Finish (Save Only) Logic
+    def on_finish_save():
+        print("💾 Saving current image state...")
+        # Save current state
+        if controller.current_image_path:
+            controller.project.annotations[controller.current_image_path] = controller.store
+        
+        # Update status display (but don't move tabs)
+        return get_export_status()
+
+    finish_save_btn.click(
+        fn=on_finish_save,
+        outputs=[export_status_display]
+    )
+    
+    # Add & Generate More Logic
+    def add_and_restart(candidates, selected_indices, clean_img):
+        if not selected_indices: raise gr.Error("No masks selected.")
+        controller.add_candidates_to_store(candidates, selected_indices)
+        
+        # Return updates to switch to Input tab and clear prompts
+        return (
+            gr.update(selected=1), # Switch to Input
+            gr.update(value=clean_img, interactive=True), # Reset img_input
+            [], # st_boxes (clear)
+            [], # st_labels (clear)
+            None, # st_pending (clear)
+            gr.update(value=[]), # box_list_display (clear)
+            gr.update(value="Crop Initial Image") # Reset click effect
+        )
+
+    add_more_btn.click(
+        fn=add_and_restart,
+        inputs=[st_candidates, st_selected_indices, st_clean_input_image],
+        outputs=[tabs, img_input, st_boxes, st_labels, st_pending_point, box_list_display, click_effect]
     )
     
     # Update status on enter editor
     confirm_btn.click(
         fn=add_to_store_wrapper,
         inputs=[st_candidates, st_selected_indices],
-        outputs=[status_box, result_screen, editor_screen]
+        outputs=[status_box, tabs]
     ).then(
         fn=init_editor,
         inputs=[],
         outputs=[refine_image, object_list]
     ).then(
-        fn=get_project_status,
-        outputs=[project_status_display]
+        fn=get_image_counter,
+        outputs=[editor_img_counter]
     )
+    
+    # Update counter on enter results
+    run_btn.click(
+        fn=start_inference,
+        inputs=[st_clean_input_image, txt_prompt],
+        outputs=[run_btn]
+    ).then(
+        fn=run_inference_fn,
+        inputs=[st_clean_input_image, txt_prompt, st_boxes, st_labels, txt_class_name, st_crop_box],
+        outputs=[st_candidates, st_current_image, tabs]
+    ).then(
+        fn=render_results_step2,
+        inputs=[st_candidates, st_current_image],
+        outputs=[results_gallery, preview_image, st_selected_indices]
+    ).then(
+        fn=get_image_counter,
+        outputs=[result_img_counter]
+    ).then(
+        fn=lambda: gr.update(value="Run Inference", interactive=True),
+        inputs=[],
+        outputs=[run_btn]
+    )
+    
+    txt_prompt.submit(
+        fn=start_inference,
+        inputs=[st_clean_input_image, txt_prompt],
+        outputs=[run_btn]
+    ).then(
+        fn=run_inference_fn,
+        inputs=[st_clean_input_image, txt_prompt, st_boxes, st_labels, txt_class_name, st_crop_box],
+        outputs=[st_candidates, st_current_image, tabs]
+    ).then(
+        fn=render_results_step2,
+        inputs=[st_candidates, st_current_image],
+        outputs=[results_gallery, preview_image, st_selected_indices]
+    ).then(
+        fn=get_image_counter,
+        outputs=[result_img_counter]
+    ).then(
+        fn=lambda: gr.update(value="Run Inference", interactive=True),
+        inputs=[],
+        outputs=[run_btn]
+    )
+
+    txt_class_name.submit(
+        fn=start_inference,
+        inputs=[st_clean_input_image, txt_prompt],
+        outputs=[run_btn]
+    ).then(
+        fn=run_inference_fn,
+        inputs=[st_clean_input_image, txt_prompt, st_boxes, st_labels, txt_class_name, st_crop_box],
+        outputs=[st_candidates, st_current_image, tabs]
+    ).then(
+        fn=render_results_step2,
+        inputs=[st_candidates, st_current_image],
+        outputs=[results_gallery, preview_image, st_selected_indices]
+    ).then(
+        fn=get_image_counter,
+        outputs=[result_img_counter]
+    ).then(
+        fn=lambda: gr.update(value="Run Inference", interactive=True),
+        inputs=[],
+        outputs=[run_btn]
+    )
+    
+    # Navigation to Export (Manual)
+    # finish_export_btn handles this now
     
     # Load JS
     demo.load(None, None, None, js=custom_js)
