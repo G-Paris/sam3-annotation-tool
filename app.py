@@ -226,6 +226,20 @@ footer { display: none !important; }
     display: flex !important;
     width: 100% !important;
 }
+
+/* Navigation Row Compactness */
+.nav-row {
+    align-items: center !important;
+    gap: 5px !important;
+    margin-bottom: 5px !important;
+}
+.nav-status textarea {
+    font-size: 0.8em !important;
+    text-align: center !important;
+    height: 30px !important;
+    min-height: 30px !important;
+    padding: 5px !important;
+}
 """
 
 # JS for Crosshair and Zoom
@@ -370,21 +384,24 @@ with gr.Blocks() as demo:
                         )
 
                 start_btn = gr.Button("Start Annotation", variant="primary", interactive=False)
+                
+                gr.Markdown("### Project State")
+                with gr.Row():
+                    project_file = gr.File(label="Load Project JSON", file_types=[".json"], height=100)
+                    with gr.Column():
+                        save_project_btn = gr.Button("Save Project State")
+                        load_project_btn = gr.Button("Load Project State")
+                        project_status = gr.Textbox(label="Status", interactive=False, lines=1)
 
             # --- SCREEN 1: INPUT ---
             with gr.TabItem("Input", id=1) as input_screen:
                 gr.Markdown("### Generate initial objects")
                 
                 # Navigation (Full Width)
-                with gr.Row():
-                    prev_btn = gr.Button("Previous")
-                    nav_status = gr.Textbox(label="Status", show_label=False, value="0/0", interactive=False, scale=2)
-                    next_btn = gr.Button("Next")
-                
-                # Prompt Row (Moved)
-                with gr.Row():
-                    txt_prompt = gr.Textbox(label="Text Prompt", placeholder="e.g. cat, car", show_label=True, scale=2)
-                    txt_class_name = gr.Textbox(label="Class Name Override", placeholder="Optional", show_label=True, scale=1)
+                with gr.Row(elem_classes="nav-row"):
+                    prev_btn = gr.Button("Previous", size="sm", scale=0)
+                    nav_status = gr.Textbox(label="Status", show_label=False, value="0/0", interactive=False, scale=1, elem_classes="nav-status")
+                    next_btn = gr.Button("Next", size="sm", scale=0)
 
                 with gr.Row():
                     # Left Column: Image
@@ -397,6 +414,11 @@ with gr.Blocks() as demo:
                             elem_id="input_image",
                             elem_classes="zoom-image"
                         )
+                        
+                        # Prompt Row (Moved Below Image)
+                        with gr.Row():
+                            txt_prompt = gr.Textbox(label="Text Prompt", placeholder="e.g. cat, car", show_label=True, scale=2)
+                            txt_class_name = gr.Textbox(label="Class Name Override", placeholder="Optional", show_label=True, scale=1)
                     
                     # Right Column: Controls
                     with gr.Column(scale=1):
@@ -643,6 +665,37 @@ with gr.Blocks() as demo:
         fn=handle_single_image,
         inputs=[single_image_input],
         outputs=[start_btn]
+    )
+    
+    # Project Save/Load
+    def on_save_project():
+        success, msg = controller.save_project("project_state.json")
+        return msg
+
+    save_project_btn.click(
+        fn=on_save_project,
+        outputs=[project_status]
+    )
+
+    def on_load_project(file_obj):
+        if file_obj is None: return "No file selected."
+        success, msg = controller.load_project(file_obj.name)
+        if success:
+            # Update UI state
+            img = controller.current_image
+            status = f"Image {controller.project.current_index + 1}/{len(controller.project.playlist)}"
+            return (
+                msg,
+                gr.update(selected=1), # Go to Input
+                gr.update(value=img, interactive=True),
+                img, [], [], None, status, None, gr.update(value=[]), gr.update(value="Crop Initial Image")
+            )
+        return msg, gr.update(), gr.update(), None, [], [], None, "0/0", None, gr.update(), gr.update()
+
+    load_project_btn.click(
+        fn=on_load_project,
+        inputs=[project_file],
+        outputs=[project_status, tabs, img_input, st_clean_input_image, st_boxes, st_labels, st_pending_point, nav_status, st_crop_box, crop_list_display, click_effect]
     )
     
     def start_session():

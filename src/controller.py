@@ -121,6 +121,8 @@ class AppController:
         obj.input_points.append(point)
         obj.input_labels.append(label)
         
+        print(f"Refining {obj_id}: Points={obj.input_points}, Labels={obj.input_labels}")
+        
         # Run Refiner
         new_mask = refine_object(self.current_image, obj)
         
@@ -146,6 +148,7 @@ class AppController:
             return obj.binary_mask
             
         # Otherwise re-run refinement
+        print(f"Refining (Undo) {obj_id}: Points={obj.input_points}, Labels={obj.input_labels}")
         new_mask = refine_object(self.current_image, obj)
         obj.binary_mask = new_mask
         return new_mask
@@ -301,6 +304,96 @@ val: images/train
             msg += f" and zipped to {final_name} (original files deleted)"
             
         return None, msg
+
+    def save_project(self, file_path: str):
+        """Save project state to JSON."""
+        import json
+        from .utils import mask_to_polygons
+        
+        # Ensure current state is saved
+        if self.current_image_path:
+            self.project.annotations[self.current_image_path] = self.store
+            
+        data = {
+            "playlist": self.project.playlist,
+            "current_index": self.project.current_index,
+            "annotations": {}
+        }
+        
+        for path, store in self.project.annotations.items():
+            objects_data = {}
+            for obj_id, obj in store.objects.items():
+                objects_data[obj_id] = {
+                    "object_id": obj.object_id,
+                    "score": obj.score,
+                    "class_name": obj.class_name,
+                    "anchor_box": obj.anchor_box,
+                    "input_points": obj.input_points,
+                    "input_labels": obj.input_labels,
+                    "polygons": mask_to_polygons(obj.binary_mask)
+                }
+            data["annotations"][path] = objects_data
+            
+        try:
+            with open(file_path, 'w') as f:
+                json.dump(data, f, indent=2)
+            return True, f"Project saved to {file_path}"
+        except Exception as e:
+            return False, f"Failed to save project: {e}"
+
+    def load_project(self, file_path: str):
+        """Load project state from JSON."""
+        import json
+        from .utils import polygons_to_mask
+        
+        try:
+            with open(file_path, 'r') as f:
+                data = json.load(f)
+        except Exception as e:
+            return False, f"Failed to load file: {e}"
+            
+        # Restore Project State
+        self.project = ProjectState(
+            playlist=data.get("playlist", []),
+            current_index=data.get("current_index", -1)
+        )
+        
+        # Restore Annotations
+        for path, objects_data in data.get("annotations", {}).items():
+            store = GlobalStore(image_path=path)
+            
+            # Need image size to restore masks
+            try:
+                with Image.open(path) as img:
+                    w, h = img.size
+            except:
+                print(f"Warning: Could not read image {path} during load. Skipping masks.")
+                continue
+                
+            for obj_id, obj_data in objects_data.items():
+                # Reconstruct mask
+                polygons = obj_data.get("polygons", [])
+                mask = polygons_to_mask(polygons, w, h)
+                
+                obj = ObjectState(
+                    object_id=obj_data["object_id"],
+                    score=obj_data["score"],
+                    class_name=obj_data["class_name"],
+                    anchor_box=obj_data["anchor_box"],
+                    binary_mask=mask,
+                    initial_mask=mask.copy(), # Assume loaded state is initial
+                    input_points=obj_data.get("input_points", []),
+                    input_labels=obj_data.get("input_labels", [])
+                )
+                store.objects[obj_id] = obj
+                
+            self.project.annotations[path] = store
+            
+        # Load current image
+        if self.project.current_index >= 0:
+            self.load_image_at_index(self.project.current_index)
+            
+        return True, f"Project loaded from {file_path}"
 
     def get_all_masks(self):
         return [(obj.binary_mask, f"{obj.class_name}") for obj in self.store.objects.values()]
