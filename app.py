@@ -156,8 +156,11 @@ def revert_object_refinement(obj_id):
     controller.revert_object(obj_id)
     return init_editor(obj_id)[0]
 
-def export_results(output_path):
+def export_results(output_path, export_type="YOLO"):
     """Export results to output folder."""
+    if "Not supported yet" in export_type:
+        raise gr.Error(f"Export type '{export_type}' is not supported yet.")
+        
     try:
         res = controller.export_data(output_path)
         if res:
@@ -338,7 +341,23 @@ with gr.Blocks() as demo:
             # --- SCREEN 0: SETUP ---
             with gr.TabItem("Setup", id=0) as setup_screen:
                 gr.Markdown("### 1. Select Data Source")
-                upload_files = gr.File(label="Upload Folder", file_count="directory", file_types=["image"], height=200)
+                
+                with gr.Tabs():
+                    with gr.TabItem("Batch (Folder)"):
+                        upload_files = gr.File(label="Upload Folder", file_count="directory", file_types=["image"], height=200)
+                    
+                    with gr.TabItem("Single Image"):
+                        single_image_input = gr.Image(
+                            label="Upload or Capture Image", 
+                            sources=["upload", "webcam", "clipboard"], 
+                            type="filepath",
+                            height=400
+                        )
+                        gr.Examples(
+                            examples=["example_img/DEPAL1_2025-11-28_12-31-29.710_81822238-07b7-4b4a-830b-5ab0e5272dbb.Color.png"],
+                            inputs=single_image_input
+                        )
+
                 start_btn = gr.Button("Start Annotation", variant="primary", interactive=False)
 
             # --- SCREEN 1: INPUT ---
@@ -481,17 +500,17 @@ with gr.Blocks() as demo:
                             finish_save_btn = gr.Button("Finish (Save)", variant="secondary")
 
             # --- SCREEN 4: EXPORT ---
-            with gr.TabItem("Export", id=4) as export_screen:
-                gr.Markdown("### Export Data")
-                
+            with gr.TabItem("Export", id=4) as export_screen:              
                 with gr.Row():
                     with gr.Column():
                         # Project State Display
-                        gr.Markdown("### Export Overview")
                         export_status_display = gr.JSON(label="Ready for Export", value={})
                         
-                        txt_output_dir = gr.Textbox(label="Output Folder", value="output")
-                        export_btn = gr.Button("Export Results (YOLO)", variant="primary")
+                        with gr.Row():
+                            txt_output_dir = gr.Textbox(label="Output Folder", value="output", scale=3)
+                            export_type = gr.Dropdown(label="Export Type", choices=["YOLO", "COCO (Not supported yet)"], value="YOLO", scale=1)
+                            
+                        export_btn = gr.Button("Export", size="sm")
                         export_status = gr.Textbox(label="Export Status", interactive=False, elem_id="export-status", lines=5)
 
     # --- Helper Functions for Editor ---
@@ -588,6 +607,23 @@ with gr.Blocks() as demo:
     upload_files.upload(
         fn=handle_upload,
         inputs=[upload_files],
+        outputs=[start_btn]
+    )
+    
+    def handle_single_image(file_path):
+        if not file_path:
+            return gr.update(interactive=False, value="Start Annotation")
+        
+        # Reuse on_upload logic which expects a list of paths
+        img, _, _, _ = on_upload([file_path])
+        
+        if controller.project.playlist:
+             return gr.update(interactive=True, value="Start Annotation (1 Image)")
+        return gr.update(interactive=False, value="Start Annotation")
+
+    single_image_input.change(
+        fn=handle_single_image,
+        inputs=[single_image_input],
         outputs=[start_btn]
     )
     
@@ -751,7 +787,7 @@ with gr.Blocks() as demo:
     
     export_btn.click(
         fn=export_results,
-        inputs=[txt_output_dir],
+        inputs=[txt_output_dir, export_type],
         outputs=[export_status]
     )
     
