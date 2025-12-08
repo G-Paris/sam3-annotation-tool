@@ -527,6 +527,7 @@ with gr.Blocks() as demo:
                         with gr.Row():
                             zip_export = gr.Checkbox(label="Zip Output", value=False, scale=0)
                             export_btn = gr.Button("Export", scale=0, min_width=150)
+                            reset_btn = gr.Button("Reset Project", variant="stop", scale=0, min_width=150)
                             
                         export_status = gr.Textbox(label="Export Status", interactive=False, elem_id="export-status", lines=5)
 
@@ -1032,8 +1033,27 @@ with gr.Blocks() as demo:
         outputs=[run_btn]
     )
     
-    # Navigation to Export (Manual)
-    # finish_export_btn handles this now
+    # Reset Project Logic
+    def on_reset():
+        controller.reset_project()
+        return (
+            gr.update(selected=0), # Go to Setup
+            gr.update(value={}), # Clear export status display
+            gr.update(value=""), # Clear export log
+            gr.update(interactive=False, value="Start Annotation"), # Reset start button
+            None, # Clear current image
+            [], [], None, # Clear boxes, labels, pending
+            "0/0", # Clear nav status
+            None, # Clear crop box
+            gr.update(value=[]), # Clear crop list
+            gr.update(value="Crop Initial Image") # Reset click effect
+        )
+
+    reset_btn.click(
+        fn=on_reset,
+        inputs=[],
+        outputs=[tabs, export_status_display, export_status, start_btn, img_input, st_boxes, st_labels, st_pending_point, nav_status, st_crop_box, crop_list_display, click_effect]
+    )
     
     # Load JS
     demo.load(None, None, None, js=custom_js)

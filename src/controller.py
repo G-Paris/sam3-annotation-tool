@@ -76,6 +76,14 @@ class AppController:
         self.project = ProjectState()
 
         
+    def reset_project(self):
+        """Reset the project state completely."""
+        self.store = GlobalStore()
+        self.current_image = None
+        self.current_image_path = None
+        self.project = ProjectState()
+        self.global_class_map = {}
+
     def search_and_add(self, class_name: str, search_boxes: list[list[int]] = [], search_labels: list[int] = [], class_name_override: str = None, crop_box: list[int] = None):
         if self.current_image is None: return []
         
