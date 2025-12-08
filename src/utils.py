@@ -104,3 +104,24 @@ def draw_points_on_image(image, points):
         draw.ellipse((x-r, y-r, x+r, y+r), fill="red", outline="white", width=4)
     
     return draw_img
+
+def mask_to_polygons(mask: np.ndarray) -> list[list[int]]:
+    """Convert binary mask to list of polygons (flattened [x, y, x, y...])."""
+    import cv2
+    mask = mask.astype(np.uint8)
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    polygons = []
+    for cnt in contours:
+        points = cnt.flatten().tolist()
+        if len(points) >= 6: # At least 3 points
+            polygons.append(points)
+    return polygons
+
+def polygons_to_mask(polygons: list[list[int]], width: int, height: int) -> np.ndarray:
+    """Convert list of polygons back to binary mask."""
+    import cv2
+    mask = np.zeros((height, width), dtype=np.uint8)
+    for poly in polygons:
+        pts = np.array(poly).reshape(-1, 2).astype(np.int32)
+        cv2.fillPoly(mask, [pts], 1)
+    return mask.astype(bool)

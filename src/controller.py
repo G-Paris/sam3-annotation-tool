@@ -359,6 +359,7 @@ val: images/train
         )
         
         # Restore Annotations
+        missing_files = []
         for path, objects_data in data.get("annotations", {}).items():
             store = GlobalStore(image_path=path)
             
@@ -368,6 +369,7 @@ val: images/train
                     w, h = img.size
             except:
                 print(f"Warning: Could not read image {path} during load. Skipping masks.")
+                missing_files.append(path)
                 continue
                 
             for obj_id, obj_data in objects_data.items():
@@ -393,7 +395,11 @@ val: images/train
         if self.project.current_index >= 0:
             self.load_image_at_index(self.project.current_index)
             
-        return True, f"Project loaded from {file_path}"
+        msg = f"Project loaded from {file_path}"
+        if missing_files:
+            msg += f". Warning: {len(missing_files)} images not found (annotations skipped)."
+            
+        return True, msg
 
     def get_all_masks(self):
         return [(obj.binary_mask, f"{obj.class_name}") for obj in self.store.objects.values()]

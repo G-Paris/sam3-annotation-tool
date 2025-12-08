@@ -363,35 +363,42 @@ with gr.Blocks() as demo:
         with gr.Tabs(elem_classes=["main-tabs"]) as tabs:
             # --- SCREEN 0: SETUP ---
             with gr.TabItem("Setup", id=0) as setup_screen:
-                gr.Markdown("### Select Data Source")
-                
-                with gr.Row():
-                    with gr.Column():
-                        gr.Markdown("#### Batch (Folder)")
-                        upload_files = gr.File(label="Upload Folder", file_count="directory", file_types=["image"], height=200)
-                    
-                    with gr.Column():
-                        gr.Markdown("#### Single Image")
-                        single_image_input = gr.Image(
-                            label="Upload or Capture Image", 
-                            sources=["upload", "webcam", "clipboard"], 
-                            type="filepath",
-                            height=400
-                        )
-                        gr.Examples(
-                            examples=["example_img/DEPAL1_2025-11-28_12-31-29.710_81822238-07b7-4b4a-830b-5ab0e5272dbb.Color.png"],
-                            inputs=single_image_input
-                        )
+                with gr.Tabs():
+                    with gr.TabItem("New Project"):
+                        gr.Markdown("### Select Data Source")
+                        
+                        with gr.Row():
+                            with gr.Column():
+                                gr.Markdown("#### Batch (Folder)")
+                                upload_files = gr.File(label="Upload Folder", file_count="directory", file_types=["image"], height=200)
+                            
+                            with gr.Column():
+                                gr.Markdown("#### Single Image")
+                                single_image_input = gr.Image(
+                                    label="Upload or Capture Image", 
+                                    sources=["upload", "webcam", "clipboard"], 
+                                    type="filepath",
+                                    height=400
+                                )
+                                gr.Examples(
+                                    examples=["example_img/DEPAL1_2025-11-28_12-31-29.710_81822238-07b7-4b4a-830b-5ab0e5272dbb.Color.png"],
+                                    inputs=single_image_input
+                                )
 
-                start_btn = gr.Button("Start Annotation", variant="primary", interactive=False)
-                
-                gr.Markdown("### Project State")
-                with gr.Row():
-                    project_file = gr.File(label="Load Project JSON", file_types=[".json"], height=100)
-                    with gr.Column():
-                        save_project_btn = gr.Button("Save Project State")
-                        load_project_btn = gr.Button("Load Project State")
-                        project_status = gr.Textbox(label="Status", interactive=False, lines=1)
+                        start_btn = gr.Button("Start Annotation", variant="primary", interactive=False)
+                    
+                    with gr.TabItem("Save / Load"):
+                        gr.Markdown("### Project State")
+                        with gr.Row():
+                            with gr.Column(scale=1):
+                                project_name_input = gr.Textbox(label="Project Name", placeholder="my_project", value="my_project")
+                                save_project_btn = gr.Button("Save Project State")
+                            
+                            with gr.Column(scale=1):
+                                project_file = gr.File(label="Load Project JSON", file_types=[".json"], height=100)
+                                load_project_btn = gr.Button("Load Project State")
+                                
+                            project_status = gr.Textbox(label="Status", interactive=False, lines=1, scale=1)
 
             # --- SCREEN 1: INPUT ---
             with gr.TabItem("Input", id=1) as input_screen:
@@ -668,12 +675,20 @@ with gr.Blocks() as demo:
     )
     
     # Project Save/Load
-    def on_save_project():
-        success, msg = controller.save_project("project_state.json")
+    def on_save_project(name):
+        if not name: return "Please enter a project name."
+        
+        # Create saved_projects directory
+        import os
+        os.makedirs("saved_projects", exist_ok=True)
+        
+        filename = f"saved_projects/{name}.json"
+        success, msg = controller.save_project(filename)
         return msg
 
     save_project_btn.click(
         fn=on_save_project,
+        inputs=[project_name_input],
         outputs=[project_status]
     )
 
@@ -688,14 +703,15 @@ with gr.Blocks() as demo:
                 msg,
                 gr.update(selected=1), # Go to Input
                 gr.update(value=img, interactive=True),
-                img, [], [], None, status, None, gr.update(value=[]), gr.update(value="Crop Initial Image")
+                img, [], [], None, status, None, gr.update(value=[]), gr.update(value="Crop Initial Image"),
+                get_export_status()
             )
-        return msg, gr.update(), gr.update(), None, [], [], None, "0/0", None, gr.update(), gr.update()
+        return msg, gr.update(), gr.update(), None, [], [], None, "0/0", None, gr.update(), gr.update(), {}
 
     load_project_btn.click(
         fn=on_load_project,
         inputs=[project_file],
-        outputs=[project_status, tabs, img_input, st_clean_input_image, st_boxes, st_labels, st_pending_point, nav_status, st_crop_box, crop_list_display, click_effect]
+        outputs=[project_status, tabs, img_input, st_clean_input_image, st_boxes, st_labels, st_pending_point, nav_status, st_crop_box, crop_list_display, click_effect, export_status_display]
     )
     
     def start_session():
