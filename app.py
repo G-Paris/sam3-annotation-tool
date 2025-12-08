@@ -156,13 +156,13 @@ def revert_object_refinement(obj_id):
     controller.revert_object(obj_id)
     return init_editor(obj_id)[0]
 
-def export_results(output_path, export_type="YOLO"):
+def export_results(output_path, export_type="YOLO", zip_output=False):
     """Export results to output folder."""
     if "Not supported yet" in export_type:
         raise gr.Error(f"Export type '{export_type}' is not supported yet.")
         
     try:
-        res = controller.export_data(output_path)
+        res = controller.export_data(output_path, purge=True, zip_output=zip_output)
         if res:
             _, msg = res
             return msg
@@ -217,6 +217,15 @@ thead th:first-child input[type="checkbox"] { display: none !important; }
 .candidate-gallery { min-height: 300px; }
 .candidate-gallery .grid-wrap { overflow-x: hidden !important; }
 .candidate-gallery .gallery-item { padding: 2px !important; }
+
+/* Hide Footer */
+footer { display: none !important; }
+
+/* Ensure the tab bar is a flex container and takes full width */
+.main-tabs > div:first-of-type {
+    display: flex !important;
+    width: 100% !important;
+}
 """
 
 # JS for Crosshair and Zoom
@@ -335,18 +344,20 @@ with gr.Blocks() as demo:
     status_box = gr.Textbox(visible=False)
     
     with gr.Column(elem_id="col-container"):
-        gr.Markdown("# **SAM3 Annotator**", elem_id="main-title")
+        gr.Markdown("# **GP-engineering's SAM3 Annotator**", elem_id="main-title")
         
-        with gr.Tabs() as tabs:
+        with gr.Tabs(elem_classes=["main-tabs"]) as tabs:
             # --- SCREEN 0: SETUP ---
             with gr.TabItem("Setup", id=0) as setup_screen:
-                gr.Markdown("### 1. Select Data Source")
+                gr.Markdown("### Select Data Source")
                 
-                with gr.Tabs():
-                    with gr.TabItem("Batch (Folder)"):
+                with gr.Row():
+                    with gr.Column():
+                        gr.Markdown("#### Batch (Folder)")
                         upload_files = gr.File(label="Upload Folder", file_count="directory", file_types=["image"], height=200)
                     
-                    with gr.TabItem("Single Image"):
+                    with gr.Column():
+                        gr.Markdown("#### Single Image")
                         single_image_input = gr.Image(
                             label="Upload or Capture Image", 
                             sources=["upload", "webcam", "clipboard"], 
@@ -501,6 +512,7 @@ with gr.Blocks() as demo:
 
             # --- SCREEN 4: EXPORT ---
             with gr.TabItem("Export", id=4) as export_screen:              
+                gr.Markdown("### Export data")
                 with gr.Row():
                     with gr.Column():
                         # Project State Display
@@ -509,8 +521,13 @@ with gr.Blocks() as demo:
                         with gr.Row():
                             txt_output_dir = gr.Textbox(label="Output Folder", value="output", scale=3)
                             export_type = gr.Dropdown(label="Export Type", choices=["YOLO", "COCO (Not supported yet)"], value="YOLO", scale=1)
+                        
+                        gr.Markdown("⚠️ **Warning:** Exporting will delete the current contents in the output directory before saving.")
+                        
+                        with gr.Row():
+                            zip_export = gr.Checkbox(label="Zip Output", value=False, scale=0)
+                            export_btn = gr.Button("Export", scale=0, min_width=150)
                             
-                        export_btn = gr.Button("Export", size="sm")
                         export_status = gr.Textbox(label="Export Status", interactive=False, elem_id="export-status", lines=5)
 
     # --- Helper Functions for Editor ---
@@ -787,7 +804,7 @@ with gr.Blocks() as demo:
     
     export_btn.click(
         fn=export_results,
-        inputs=[txt_output_dir, export_type],
+        inputs=[txt_output_dir, export_type, zip_export],
         outputs=[export_status]
     )
     

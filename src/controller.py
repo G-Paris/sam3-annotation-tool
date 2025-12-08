@@ -161,7 +161,7 @@ class AppController:
         
         return obj.binary_mask
 
-    def export_data(self, output_dir: str):
+    def export_data(self, output_dir: str, purge: bool = False, zip_output: bool = False):
         """Export all images and annotations in playlist to YOLO format."""
         
         # Ensure current state is saved
@@ -181,6 +181,11 @@ class AppController:
         
         images_dir = os.path.join(output_dir, "images", "train")
         labels_dir = os.path.join(output_dir, "labels", "train")
+        
+        if purge:
+            if os.path.exists(output_dir):
+                shutil.rmtree(output_dir)
+
         os.makedirs(images_dir, exist_ok=True)
         os.makedirs(labels_dir, exist_ok=True)
         
@@ -256,7 +261,38 @@ val: images/train
         with open(os.path.join(output_dir, "data.yaml"), "w") as f:
             f.write(yaml_content)
             
-        return None, f"Exported {exported_count} images to {output_dir}"
+        msg = f"Exported {exported_count} images to {output_dir}"
+        
+        if zip_output:
+            # Create a temp folder for staging the zip
+            parent_dir = os.path.dirname(os.path.abspath(output_dir))
+            temp_dir = os.path.join(parent_dir, "temp")
+            os.makedirs(temp_dir, exist_ok=True)
+            
+            base_name = os.path.join(temp_dir, "dataset")
+            
+            # Create zip in temp folder
+            zip_file = shutil.make_archive(base_name, 'zip', output_dir)
+            
+            # Clear output_dir
+            for item in os.listdir(output_dir):
+                item_path = os.path.join(output_dir, item)
+                if os.path.isfile(item_path) or os.path.islink(item_path):
+                    os.unlink(item_path)
+                elif os.path.isdir(item_path):
+                    shutil.rmtree(item_path)
+            
+            # Move zip to output_dir
+            final_name = "dataset.zip"
+            final_path = os.path.join(output_dir, final_name)
+            shutil.move(zip_file, final_path)
+            
+            # Remove temp folder
+            shutil.rmtree(temp_dir)
+            
+            msg += f" and zipped to {final_name} (original files deleted)"
+            
+        return None, msg
 
     def get_all_masks(self):
         return [(obj.binary_mask, f"{obj.class_name}") for obj in self.store.objects.values()]
