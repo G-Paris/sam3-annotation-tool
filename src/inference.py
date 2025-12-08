@@ -118,13 +118,29 @@ def search_objects(selector_input: SelectorInput) -> list[ObjectState]:
     # However, for "Include/Exclude" areas, if the model treats all boxes as "Include", we have a problem.
     # Let's check if we can pass it.
     
-    inputs = _IMG_PROCESSOR(
-        images=image, 
-        text=[selector_input.text], 
-        input_boxes=input_boxes,
-        input_boxes_labels=input_labels, 
-        return_tensors="pt"
-    ).to(device)
+    # SAM3 requires input_ids even if only using boxes. 
+    # If no text is provided, we pass a dummy empty string to generate padding tokens.
+    # text_input = [selector_input.text] if (selector_input.text and selector_input.text.strip()) else [""]
+    
+    # User instruction: Pass [None] if text is empty, do not pass "" or None
+    # text_input = [selector_input.text] if (selector_input.text and selector_input.text.strip()) else [None]
+
+    # Construct arguments dynamically to omit missing inputs
+    processor_kwargs = {
+        "images": image,
+        "return_tensors": "pt"
+    }
+    
+    if selector_input.text and selector_input.text.strip():
+        processor_kwargs["text"] = [selector_input.text]
+        
+    if input_boxes is not None:
+        processor_kwargs["input_boxes"] = input_boxes
+        
+    if input_labels is not None:
+        processor_kwargs["input_boxes_labels"] = input_labels
+
+    inputs = _IMG_PROCESSOR(**processor_kwargs).to(device)
     
     with torch.no_grad():
         outputs = _IMG_MODEL(**inputs)
@@ -156,7 +172,7 @@ def search_objects(selector_input: SelectorInput) -> list[ObjectState]:
         anchor_box = get_bbox_from_mask(mask)
         if anchor_box is None: continue
         
-        final_name = selector_input.class_name_override if selector_input.class_name_override else selector_input.text
+        final_name = selector_input.class_name_override or selector_input.text or "Object"
         
         candidates.append(ObjectState(
             score=float(raw_scores[idx]),

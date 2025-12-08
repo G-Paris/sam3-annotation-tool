@@ -25,8 +25,8 @@ def run_inference_step1(clean_image, text_prompt, boxes, labels, class_name_over
     
     if clean_image is None: 
         raise gr.Error("Please upload an image.")
-    if not text_prompt: 
-        raise gr.Error("Please enter a text prompt.")
+    if not text_prompt and not boxes: 
+        raise gr.Error("Please enter a text prompt or add box prompts.")
         
     # Only set image if not in playlist mode (to avoid resetting project state)
     if not controller.project.playlist:
@@ -683,66 +683,15 @@ with gr.Blocks() as demo:
     # 4. Run Inference (Button + Enter)
     run_inference_fn = lambda img, txt, boxes, labels, cls_name, crop: run_inference_step1(img, txt, boxes, labels, cls_name, crop)
     
-    def start_inference(img, prompt):
+    def start_inference(img, prompt, boxes):
         if img is None:
              raise gr.Error("Please upload an image.")
-        if not prompt:
-            raise gr.Error("Please enter a text prompt.")
+        if not prompt and not boxes:
+             raise gr.Error("Please enter a text prompt or add box prompts.")
         return gr.update(value="Running Inference...", interactive=False)
 
-    run_btn.click(
-        fn=start_inference,
-        inputs=[st_clean_input_image, txt_prompt],
-        outputs=[run_btn]
-    ).then(
-        fn=run_inference_fn,
-        inputs=[st_clean_input_image, txt_prompt, st_boxes, st_labels, txt_class_name, st_crop_box],
-        outputs=[st_candidates, st_current_image, tabs]
-    ).then(
-        fn=render_results_step2,
-        inputs=[st_candidates, st_current_image],
-        outputs=[results_gallery, preview_image, st_selected_indices]
-    ).then(
-        fn=lambda: gr.update(value="Run Inference", interactive=True),
-        inputs=[],
-        outputs=[run_btn]
-    )
-    
-    txt_prompt.submit(
-        fn=start_inference,
-        inputs=[st_clean_input_image, txt_prompt],
-        outputs=[run_btn]
-    ).then(
-        fn=run_inference_fn,
-        inputs=[st_clean_input_image, txt_prompt, st_boxes, st_labels, txt_class_name, st_crop_box],
-        outputs=[st_candidates, st_current_image, tabs]
-    ).then(
-        fn=render_results_step2,
-        inputs=[st_candidates, st_current_image],
-        outputs=[results_gallery, preview_image, st_selected_indices]
-    ).then(
-        fn=lambda: gr.update(value="Run Inference", interactive=True),
-        inputs=[],
-        outputs=[run_btn]
-    )
+    # Event listeners for inference are defined at the end of the file to include counter updates
 
-    txt_class_name.submit(
-        fn=start_inference,
-        inputs=[st_clean_input_image, txt_prompt],
-        outputs=[run_btn]
-    ).then(
-        fn=run_inference_fn,
-        inputs=[st_clean_input_image, txt_prompt, st_boxes, st_labels, txt_class_name, st_crop_box],
-        outputs=[st_candidates, st_current_image, tabs]
-    ).then(
-        fn=render_results_step2,
-        inputs=[st_candidates, st_current_image],
-        outputs=[results_gallery, preview_image, st_selected_indices]
-    ).then(
-        fn=lambda: gr.update(value="Run Inference", interactive=True),
-        inputs=[],
-        outputs=[run_btn]
-    )
     
     # 3b. Select All
     select_all_btn.click(
@@ -969,7 +918,7 @@ with gr.Blocks() as demo:
     # Update counter on enter results
     run_btn.click(
         fn=start_inference,
-        inputs=[st_clean_input_image, txt_prompt],
+        inputs=[st_clean_input_image, txt_prompt, st_boxes],
         outputs=[run_btn]
     ).then(
         fn=run_inference_fn,
@@ -990,7 +939,7 @@ with gr.Blocks() as demo:
     
     txt_prompt.submit(
         fn=start_inference,
-        inputs=[st_clean_input_image, txt_prompt],
+        inputs=[st_clean_input_image, txt_prompt, st_boxes],
         outputs=[run_btn]
     ).then(
         fn=run_inference_fn,
@@ -1011,7 +960,7 @@ with gr.Blocks() as demo:
 
     txt_class_name.submit(
         fn=start_inference,
-        inputs=[st_clean_input_image, txt_prompt],
+        inputs=[st_clean_input_image, txt_prompt, st_boxes],
         outputs=[run_btn]
     ).then(
         fn=run_inference_fn,
