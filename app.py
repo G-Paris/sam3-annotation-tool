@@ -564,6 +564,7 @@ with gr.Blocks() as demo:
                             export_type = gr.Dropdown(label="Export Type", choices=["YOLO", "COCO (Not supported yet)"], value="YOLO", scale=1)
                         
                         gr.Markdown("⚠️ **Warning:** Exporting will delete the current contents in the output directory before saving.")
+                        gr.Markdown("ℹ️ **Note:** All classes in the project history will be included in `data.yaml` to ensure compatibility with tools like CVAT, make sure all labels in the CVAT project are added to the project history (prevents KeyError).")
                         
                         with gr.Row():
                             zip_export = gr.Checkbox(label="Zip Output", value=False, scale=0)
