@@ -16,6 +16,7 @@ class AppController:
         # Playlist state
         self.project = ProjectState()
         self.global_class_map = {} # Map class_name -> int ID
+        self.active_project_path = None # Path to the current project JSON file
         
     def load_playlist(self, file_paths: list[str]):
         """Load a list of image paths."""
@@ -83,8 +84,29 @@ class AppController:
         self.current_image_path = None
         self.project = ProjectState()
         self.global_class_map = {}
+        self.active_project_path = None
+
+    def auto_save(self):
+        """Auto-save the project if an active path is set."""
+        if self.active_project_path:
+            print(f"💾 Auto-saving to {self.active_project_path}...")
+            return self.save_project(self.active_project_path)
+        return False, "No active project to save."
+
+    def update_history(self, prompt: str, class_name: str):
+        if prompt and prompt not in self.project.prompt_history:
+            self.project.prompt_history.append(prompt)
+        if class_name and class_name not in self.project.class_name_history:
+            self.project.class_name_history.append(class_name)
+
+    def update_history(self, prompt: str, class_name: str):
+        if prompt and prompt not in self.project.prompt_history:
+            self.project.prompt_history.append(prompt)
+        if class_name and class_name not in self.project.class_name_history:
+            self.project.class_name_history.append(class_name)
 
     def search_and_add(self, class_name: str, search_boxes: list[list[int]] = [], search_labels: list[int] = [], class_name_override: str = None, crop_box: list[int] = None):
+        self.update_history(class_name, class_name_override)
         if self.current_image is None: return []
         
         # Create SelectorInput
@@ -306,21 +328,64 @@ val: images/train
         return None, msg
 
     def save_project(self, file_path: str):
-        """Save project state to JSON."""
+        """Save project state to JSON and bundle images."""
         import json
+        import os
+        import shutil
         from .utils import mask_to_polygons
         
         # Ensure current state is saved
         if self.current_image_path:
             self.project.annotations[self.current_image_path] = self.store
             
+        # Create assets directory
+        base_dir = os.path.dirname(file_path)
+        project_name = os.path.splitext(os.path.basename(file_path))[0]
+        assets_dir_name = f"{project_name}_assets"
+        assets_dir = os.path.join(base_dir, assets_dir_name)
+        os.makedirs(assets_dir, exist_ok=True)
+        
+        # Map original paths to relative paths
+        path_map = {} # original -> relative
+        new_playlist = []
+        
+        # Process playlist
+        for original_path in self.project.playlist:
+            filename = os.path.basename(original_path)
+            # Handle duplicate filenames by prepending index if needed? 
+            # For now assume unique filenames or just overwrite (simple)
+            # Better: check collision
+            
+            dest_path = os.path.join(assets_dir, filename)
+            
+            # Copy file if it doesn't exist or if we want to ensure it's there
+            try:
+                if not os.path.exists(dest_path) or os.path.abspath(original_path) != os.path.abspath(dest_path):
+                    shutil.copy2(original_path, dest_path)
+            except Exception as e:
+                print(f"Warning: Failed to copy {original_path} to {dest_path}: {e}")
+            
+            # Store relative path
+            relative_path = os.path.join(assets_dir_name, filename)
+            path_map[original_path] = relative_path
+            new_playlist.append(relative_path)
+            
         data = {
-            "playlist": self.project.playlist,
+            "playlist": new_playlist,
             "current_index": self.project.current_index,
+            "prompt_history": self.project.prompt_history,
+            "class_name_history": self.project.class_name_history,
             "annotations": {}
         }
         
         for path, store in self.project.annotations.items():
+            # Get the new relative path key
+            new_key = path_map.get(path)
+            if not new_key:
+                # If annotation exists for a file not in playlist (shouldn't happen but safe fallback)
+                filename = os.path.basename(path)
+                new_key = os.path.join(assets_dir_name, filename)
+                
             objects_data = {}
             for obj_id, obj in store.objects.items():
                 objects_data[obj_id] = {
@@ -332,18 +397,23 @@ val: images/train
                     "input_labels": obj.input_labels,
                     "polygons": mask_to_polygons(obj.binary_mask)
                 }
-            data["annotations"][path] = objects_data
+            data["annotations"][new_key] = objects_data
             
         try:
             with open(file_path, 'w') as f:
                 json.dump(data, f, indent=2)
-            return True, f"Project saved to {file_path}"
+            
+            # Update active project path
+            self.active_project_path = file_path
+            
+            return True, f"Project saved to {file_path} (Images bundled in {assets_dir_name})"
         except Exception as e:
             return False, f"Failed to save project: {e}"
 
     def load_project(self, file_path: str):
         """Load project state from JSON."""
         import json
+        import os
         from .utils import polygons_to_mask
         
         try:
@@ -352,24 +422,35 @@ val: images/train
         except Exception as e:
             return False, f"Failed to load file: {e}"
             
+        base_dir = os.path.dirname(file_path)
+        
+        # Reconstruct absolute paths for playlist
+        loaded_playlist = []
+        for rel_path in data.get("playlist", []):
+            abs_path = os.path.abspath(os.path.join(base_dir, rel_path))
+            loaded_playlist.append(abs_path)
+            
         # Restore Project State
         self.project = ProjectState(
-            playlist=data.get("playlist", []),
-            current_index=data.get("current_index", -1)
+            playlist=loaded_playlist,
+            current_index=data.get("current_index", -1),
+            prompt_history=data.get("prompt_history", []),
+            class_name_history=data.get("class_name_history", [])
         )
         
         # Restore Annotations
         missing_files = []
-        for path, objects_data in data.get("annotations", {}).items():
-            store = GlobalStore(image_path=path)
+        for rel_path, objects_data in data.get("annotations", {}).items():
+            abs_path = os.path.abspath(os.path.join(base_dir, rel_path))
+            store = GlobalStore(image_path=abs_path)
             
             # Need image size to restore masks
             try:
-                with Image.open(path) as img:
+                with Image.open(abs_path) as img:
                     w, h = img.size
             except:
-                print(f"Warning: Could not read image {path} during load. Skipping masks.")
-                missing_files.append(path)
+                print(f"Warning: Could not read image {abs_path} during load. Skipping masks.")
+                missing_files.append(abs_path)
                 continue
                 
             for obj_id, obj_data in objects_data.items():
@@ -389,7 +470,7 @@ val: images/train
                 )
                 store.objects[obj_id] = obj
                 
-            self.project.annotations[path] = store
+            self.project.annotations[abs_path] = store
             
         # Load current image
         if self.project.current_index >= 0:
@@ -398,6 +479,9 @@ val: images/train
         msg = f"Project loaded from {file_path}"
         if missing_files:
             msg += f". Warning: {len(missing_files)} images not found (annotations skipped)."
+            
+        # Update active project path
+        self.active_project_path = file_path
             
         return True, msg
 

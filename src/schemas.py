@@ -40,3 +40,6 @@ class ProjectState(BaseModel):
     playlist: List[str] = []
     current_index: int = -1
     annotations: Dict[str, GlobalStore] = {}
+    prompt_history: List[str] = []
+    class_name_history: List[str] = []
+    class_name_history: List[str] = []

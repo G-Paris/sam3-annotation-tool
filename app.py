@@ -43,7 +43,9 @@ def run_inference_step1(clean_image, text_prompt, boxes, labels, class_name_over
     return (
         candidates,
         clean_image,
-        gr.update(selected=2) # Switch to Results Tab
+        gr.update(selected=2), # Switch to Results Tab
+        gr.update(choices=controller.project.prompt_history),
+        gr.update(choices=controller.project.class_name_history)
     )
 
 def render_results_step2(candidates, image):
@@ -384,7 +386,9 @@ with gr.Blocks() as demo:
                                     examples=["example_img/DEPAL1_2025-11-28_12-31-29.710_81822238-07b7-4b4a-830b-5ab0e5272dbb.Color.png"],
                                     inputs=single_image_input
                                 )
-
+                        
+                        gr.Markdown("### Project Details")
+                        new_project_name = gr.Textbox(label="Project Name", placeholder="Enter a name for your new project")
                         start_btn = gr.Button("Start Annotation", variant="primary", interactive=False)
                     
                     with gr.TabItem("Save / Load"):
@@ -395,10 +399,17 @@ with gr.Blocks() as demo:
                                 save_project_btn = gr.Button("Save Project State")
                             
                             with gr.Column(scale=1):
-                                project_file = gr.File(label="Load Project JSON", file_types=[".json"], height=100)
+                                # Changed from File Upload to Dropdown for Local Projects
+                                project_dropdown = gr.Dropdown(label="Load Existing Project", choices=[], interactive=True)
+                                refresh_projects_btn = gr.Button("🔄 Refresh List", size="sm")
                                 load_project_btn = gr.Button("Load Project State")
                                 
-                            project_status = gr.Textbox(label="Status", interactive=False, lines=1, scale=1)
+                                with gr.Row():
+                                    delete_project_btn = gr.Button("Delete Project", variant="stop", size="sm")
+                                    confirm_delete_btn = gr.Button("⚠️ Confirm Delete", variant="stop", size="sm", visible=False)
+                                    cancel_delete_btn = gr.Button("Cancel", size="sm", visible=False)
+                                
+                            project_status = gr.Textbox(label="Status", interactive=False, lines=10, scale=1)
 
             # --- SCREEN 1: INPUT ---
             with gr.TabItem("Input", id=1) as input_screen:
@@ -424,8 +435,8 @@ with gr.Blocks() as demo:
                         
                         # Prompt Row (Moved Below Image)
                         with gr.Row():
-                            txt_prompt = gr.Textbox(label="Text Prompt", placeholder="e.g. cat, car", show_label=True, scale=2)
-                            txt_class_name = gr.Textbox(label="Class Name Override", placeholder="Optional", show_label=True, scale=1)
+                            txt_prompt = gr.Dropdown(label="Text Prompt", choices=[], allow_custom_value=True, show_label=True, scale=2)
+                            txt_class_name = gr.Dropdown(label="Class Name Override", choices=[], allow_custom_value=True, show_label=True, scale=1)
                     
                     # Right Column: Controls
                     with gr.Column(scale=1):
@@ -498,6 +509,7 @@ with gr.Blocks() as demo:
                 with gr.Row():
                     gr.Markdown("### Refine individual objects")
                     editor_img_counter = gr.Markdown("Image 0/0", elem_id="editor-img-counter")
+                    refresh_editor_btn = gr.Button("🔄 Refresh", size="sm", scale=0)
                 
                 with gr.Row():
                     with gr.Column(scale=3):
@@ -634,6 +646,10 @@ with gr.Blocks() as demo:
     def on_delete(obj_id):
         if not obj_id: return gr.update(), gr.update()
         controller.remove_object(obj_id)
+        
+        # Auto-save
+        controller.auto_save()
+        
         # Refresh everything
         img, radio = init_editor(None)
         return img, radio
@@ -692,9 +708,19 @@ with gr.Blocks() as demo:
         outputs=[project_status]
     )
 
-    def on_load_project(file_obj):
-        if file_obj is None: return "No file selected."
-        success, msg = controller.load_project(file_obj.name)
+    def list_projects():
+        import os
+        if not os.path.exists("saved_projects"):
+            return []
+        files = [f for f in os.listdir("saved_projects") if f.endswith(".json")]
+        return sorted(files)
+
+    def on_load_project(filename):
+        if not filename: return "No project selected.", gr.update(), gr.update(), None, [], [], None, "0/0", None, gr.update(), gr.update(), {}, gr.update(), gr.update()
+        
+        file_path = f"saved_projects/{filename}"
+        success, msg = controller.load_project(file_path)
+        
         if success:
             # Update UI state
             img = controller.current_image
@@ -704,19 +730,101 @@ with gr.Blocks() as demo:
                 gr.update(selected=1), # Go to Input
                 gr.update(value=img, interactive=True),
                 img, [], [], None, status, None, gr.update(value=[]), gr.update(value="Crop Initial Image"),
-                get_export_status()
+                get_export_status(),
+                gr.update(choices=controller.project.prompt_history),
+                gr.update(choices=controller.project.class_name_history)
             )
-        return msg, gr.update(), gr.update(), None, [], [], None, "0/0", None, gr.update(), gr.update(), {}
+        return msg, gr.update(), gr.update(), None, [], [], None, "0/0", None, gr.update(), gr.update(), {}, gr.update(), gr.update()
 
     load_project_btn.click(
         fn=on_load_project,
-        inputs=[project_file],
-        outputs=[project_status, tabs, img_input, st_clean_input_image, st_boxes, st_labels, st_pending_point, nav_status, st_crop_box, crop_list_display, click_effect, export_status_display]
+        inputs=[project_dropdown],
+        outputs=[project_status, tabs, img_input, st_clean_input_image, st_boxes, st_labels, st_pending_point, nav_status, st_crop_box, crop_list_display, click_effect, export_status_display, txt_prompt, txt_class_name]
     )
     
-    def start_session():
+    refresh_projects_btn.click(
+        fn=lambda: gr.update(choices=list_projects()),
+        inputs=[],
+        outputs=[project_dropdown]
+    )
+    
+    # Delete Project Logic
+    def on_delete_click(filename):
+        if not filename: return gr.update(visible=False), gr.update(visible=False), "Please select a project to delete."
+        return gr.update(visible=True), gr.update(visible=True), f"Are you sure you want to delete '{filename}'? This cannot be undone."
+
+    delete_project_btn.click(
+        fn=on_delete_click,
+        inputs=[project_dropdown],
+        outputs=[confirm_delete_btn, cancel_delete_btn, project_status]
+    )
+
+    def on_cancel_delete():
+        return gr.update(visible=False), gr.update(visible=False), "Deletion cancelled."
+
+    cancel_delete_btn.click(
+        fn=on_cancel_delete,
+        inputs=[],
+        outputs=[confirm_delete_btn, cancel_delete_btn, project_status]
+    )
+
+    def on_confirm_delete(filename):
+        if not filename: return gr.update(visible=False), gr.update(visible=False), "No project selected.", gr.update()
+        
+        import os
+        import shutil
+        
+        json_path = f"saved_projects/{filename}"
+        assets_dir = f"saved_projects/{filename.replace('.json', '')}_assets"
+        
+        msg = []
+        try:
+            if os.path.exists(json_path):
+                os.remove(json_path)
+                msg.append(f"Deleted {filename}")
+            
+            if os.path.exists(assets_dir):
+                shutil.rmtree(assets_dir)
+                msg.append(f"Deleted assets folder")
+                
+            if not msg:
+                return gr.update(visible=False), gr.update(visible=False), "Project files not found.", gr.update(choices=list_projects())
+                
+            return gr.update(visible=False), gr.update(visible=False), f"Success: {', '.join(msg)}", gr.update(choices=list_projects(), value=None)
+            
+        except Exception as e:
+            return gr.update(visible=False), gr.update(visible=False), f"Error deleting project: {e}", gr.update(choices=list_projects())
+
+    confirm_delete_btn.click(
+        fn=on_confirm_delete,
+        inputs=[project_dropdown],
+        outputs=[confirm_delete_btn, cancel_delete_btn, project_status, project_dropdown]
+    )
+    
+    # Init project list on load
+    demo.load(fn=lambda: gr.update(choices=list_projects()), inputs=[], outputs=[project_dropdown])
+    
+    def start_session(project_name):
         if not controller.project.playlist:
              raise gr.Error("No images loaded.")
+        
+        if not project_name:
+             raise gr.Error("Please enter a project name.")
+             
+        # Initialize project path
+        import os
+        os.makedirs("saved_projects", exist_ok=True)
+        filename = f"saved_projects/{project_name}.json"
+        
+        # Check if exists
+        if os.path.exists(filename):
+             # Optional: Warn user? For now, just proceed (will overwrite if saved)
+             pass
+             
+        controller.active_project_path = filename
+        
+        # Initial Save
+        controller.save_project(filename)
         
         # Ensure we have the first image loaded
         if controller.current_image is None:
@@ -744,7 +852,7 @@ with gr.Blocks() as demo:
 
     start_btn.click(
         fn=start_session,
-        inputs=[],
+        inputs=[new_project_name],
         outputs=[tabs, img_input, st_clean_input_image, st_boxes, st_labels, st_pending_point, nav_status, st_crop_box, crop_list_display, click_effect]
     )
     
@@ -949,6 +1057,9 @@ with gr.Blocks() as demo:
         if controller.current_image_path:
             controller.project.annotations[controller.current_image_path] = controller.store
             
+        # Auto-save project
+        controller.auto_save()
+            
         img = controller.next_image()
         status = get_image_counter() if img else "Finished"
         
@@ -993,6 +1104,9 @@ with gr.Blocks() as demo:
         # Save current state
         if controller.current_image_path:
             controller.project.annotations[controller.current_image_path] = controller.store
+            
+        # Auto-save project
+        controller.auto_save()
         
         # Update status display (but don't move tabs)
         return get_export_status()
@@ -1006,6 +1120,9 @@ with gr.Blocks() as demo:
     def add_and_restart(candidates, selected_indices, clean_img):
         if not selected_indices: raise gr.Error("No masks selected.")
         controller.add_candidates_to_store(candidates, selected_indices)
+        
+        # Auto-save
+        controller.auto_save()
         
         # Return updates to switch to Input tab and clear prompts
         return (
@@ -1030,6 +1147,10 @@ with gr.Blocks() as demo:
         inputs=[st_candidates, st_selected_indices],
         outputs=[status_box, tabs]
     ).then(
+        fn=lambda: (controller.auto_save(), None)[1], # Auto-save on confirm
+        inputs=[],
+        outputs=[]
+    ).then(
         fn=init_editor,
         inputs=[],
         outputs=[refine_image, object_list]
@@ -1046,49 +1167,7 @@ with gr.Blocks() as demo:
     ).then(
         fn=run_inference_fn,
         inputs=[st_clean_input_image, txt_prompt, st_boxes, st_labels, txt_class_name, st_crop_box],
-        outputs=[st_candidates, st_current_image, tabs]
-    ).then(
-        fn=render_results_step2,
-        inputs=[st_candidates, st_current_image],
-        outputs=[results_gallery, preview_image, st_selected_indices]
-    ).then(
-        fn=get_image_counter,
-        outputs=[result_img_counter]
-    ).then(
-        fn=lambda: gr.update(value="Run Inference", interactive=True),
-        inputs=[],
-        outputs=[run_btn]
-    )
-    
-    txt_prompt.submit(
-        fn=start_inference,
-        inputs=[st_clean_input_image, txt_prompt, st_boxes],
-        outputs=[run_btn]
-    ).then(
-        fn=run_inference_fn,
-        inputs=[st_clean_input_image, txt_prompt, st_boxes, st_labels, txt_class_name, st_crop_box],
-        outputs=[st_candidates, st_current_image, tabs]
-    ).then(
-        fn=render_results_step2,
-        inputs=[st_candidates, st_current_image],
-        outputs=[results_gallery, preview_image, st_selected_indices]
-    ).then(
-        fn=get_image_counter,
-        outputs=[result_img_counter]
-    ).then(
-        fn=lambda: gr.update(value="Run Inference", interactive=True),
-        inputs=[],
-        outputs=[run_btn]
-    )
-
-    txt_class_name.submit(
-        fn=start_inference,
-        inputs=[st_clean_input_image, txt_prompt, st_boxes],
-        outputs=[run_btn]
-    ).then(
-        fn=run_inference_fn,
-        inputs=[st_clean_input_image, txt_prompt, st_boxes, st_labels, txt_class_name, st_crop_box],
-        outputs=[st_candidates, st_current_image, tabs]
+        outputs=[st_candidates, st_current_image, tabs, txt_prompt, txt_class_name]
     ).then(
         fn=render_results_step2,
         inputs=[st_candidates, st_current_image],
@@ -1115,15 +1194,45 @@ with gr.Blocks() as demo:
             "0/0", # Clear nav status
             None, # Clear crop box
             gr.update(value=[]), # Clear crop list
-            gr.update(value="Crop Initial Image") # Reset click effect
+            gr.update(value="Crop Initial Image"), # Reset click effect
+            gr.update(value="", choices=[]), # Clear prompt history
+            gr.update(value="", choices=[])  # Clear class name history
         )
 
     reset_btn.click(
         fn=on_reset,
         inputs=[],
-        outputs=[tabs, export_status_display, export_status, start_btn, img_input, st_boxes, st_labels, st_pending_point, nav_status, st_crop_box, crop_list_display, click_effect]
+        outputs=[tabs, export_status_display, export_status, start_btn, img_input, st_boxes, st_labels, st_pending_point, nav_status, st_crop_box, crop_list_display, click_effect, txt_prompt, txt_class_name]
     )
     
+    # Tab Switching Logic
+    def on_tab_select(evt: gr.SelectData):
+        print(f"Tab selected: {evt.value}, Index: {evt.index}")
+        if evt.value == "Editor" or evt.index == 3:
+            img, radio = init_editor(None)
+            counter = get_image_counter()
+            print(f"Editor Init: Image={img is not None}, Counter={counter}")
+            return img, radio, counter
+        return gr.update(), gr.update(), gr.update()
+
+    tabs.select(
+        fn=on_tab_select,
+        inputs=[],
+        outputs=[refine_image, object_list, editor_img_counter]
+    )
+    
+    # Refresh Button Logic
+    def on_refresh_editor():
+        img, radio = init_editor(None)
+        counter = get_image_counter()
+        return img, radio, counter
+
+    refresh_editor_btn.click(
+        fn=on_refresh_editor,
+        inputs=[],
+        outputs=[refine_image, object_list, editor_img_counter]
+    )
+
     # Load JS
     demo.load(None, None, None, js=custom_js)
 

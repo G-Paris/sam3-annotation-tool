@@ -110,6 +110,7 @@ def search_objects(selector_input: SelectorInput) -> list[ObjectState]:
     print(f"🔍 Search Inputs:")
     print(f"   - Text: '{selector_input.text}'")
     print(f"   - Boxes: {input_boxes}")
+    print(f"   - Box Labels: {input_labels if 'input_labels' in locals() else 'None'}")
     print(f"   - Image Size: {image.size}")
         
     # Note: Sam3Processor might not support input_labels directly in the same way as input_boxes for prompt encoding
@@ -188,6 +189,11 @@ def refine_object(image: Image.Image, obj_state: ObjectState) -> np.ndarray:
     """
     Stage B: The Refiner
     """
+    print(f"🔧 Refine Inputs:")
+    print(f"   - Anchor Box: {obj_state.anchor_box}")
+    print(f"   - Points: {obj_state.input_points}")
+    print(f"   - Point Labels: {obj_state.input_labels}")
+
     if _TRK_MODEL is None: load_models()
     
     original_w, original_h = image.size
