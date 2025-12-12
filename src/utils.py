@@ -125,3 +125,185 @@ def polygons_to_mask(polygons: list[list[int]], width: int, height: int) -> np.n
         pts = np.array(poly).reshape(-1, 2).astype(np.int32)
         cv2.fillPoly(mask, [pts], 1)
     return mask.astype(bool)
+
+
+def clean_polygon_shapely(normalized_coords, img_width, img_height, 
+                          tolerance_ratio=0.0012, min_area_ratio=0.00001):
+    """Clean polygon using shapely with resolution-scaled parameters.
+    
+    This function applies topology validation, repair, simplification, and area filtering
+    to polygon coordinates. It's designed to work with YOLO-format normalized coordinates.
+    
+    The Douglas-Peucker simplification algorithm removes points that are closer than
+    tolerance_px to the simplified line. Simple polygons with widely-spaced points are
+    naturally preserved, while complex polygons with many close points are simplified.
+    
+    Args:
+        normalized_coords: List of [x, y, x, y, ...] in range [0, 1]
+        img_width: Image width in pixels
+        img_height: Image height in pixels
+        tolerance_ratio: Simplification tolerance as fraction of min(width, height).
+                        Default 0.0012 means ~1.5px on typical resolutions.
+                        Higher values = more aggressive simplification.
+        min_area_ratio: Minimum polygon area as fraction of total image area.
+                       Polygons smaller than this are filtered out.
+                       Default 0.00001 = 0.001% of image area (~27px² at 2208x1242).
+    
+    Returns:
+        Tuple of (cleaned_normalized_coords, stats_dict) or (None, stats_dict) if filtered.
+        
+        cleaned_normalized_coords: List of [x, y, x, y, ...] in range [0, 1], or None
+        
+        stats_dict contains:
+            - original_points (int): Number of points before cleanup
+            - final_points (int): Number of points after cleanup
+            - original_area (float): Area in square pixels before cleanup
+            - final_area (float): Area in square pixels after cleanup
+            - was_invalid (bool): Whether polygon had topology issues (self-intersection, etc.)
+            - was_filtered (bool): Whether polygon was removed
+            - filter_reason (str or None): Reason for filtering if was_filtered=True
+    
+    Example:
+        >>> # Typical usage with YOLO coordinates
+        >>> normalized = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6]  # 3 points
+        >>> cleaned, stats = clean_polygon_shapely(normalized, 1920, 1080)
+        >>> if cleaned is not None:
+        >>>     print(f"Reduced from {stats['original_points']} to {stats['final_points']} points")
+    """
+    try:
+        from shapely.geometry import Polygon as ShapelyPolygon
+    except ImportError:
+        # Fallback: return original without cleanup if shapely not available
+        return normalized_coords, {
+            'original_points': len(normalized_coords) // 2,
+            'final_points': len(normalized_coords) // 2,
+            'original_area': 0.0,
+            'final_area': 0.0,
+            'was_invalid': False,
+            'was_filtered': False,
+            'filter_reason': 'shapely_not_installed'
+        }
+    
+    stats = {
+        'original_points': len(normalized_coords) // 2,
+        'final_points': 0,
+        'original_area': 0.0,
+        'final_area': 0.0,
+        'was_invalid': False,
+        'was_filtered': False,
+        'filter_reason': None
+    }
+    
+    # Need at least 3 points for a valid polygon
+    if len(normalized_coords) < 6:
+        stats['was_filtered'] = True
+        stats['filter_reason'] = 'too_few_points'
+        return None, stats
+    
+    # Denormalize to pixel coordinates
+    pixel_coords = []
+    for i in range(0, len(normalized_coords), 2):
+        pixel_coords.append(normalized_coords[i] * img_width)
+        pixel_coords.append(normalized_coords[i + 1] * img_height)
+    
+    # Calculate original area using shoelace formula
+    def shoelace_area(coords):
+        if len(coords) < 6:
+            return 0.0
+        x = coords[::2]
+        y = coords[1::2]
+        area = 0.0
+        n = len(x)
+        for i in range(n):
+            j = (i + 1) % n
+            area += x[i] * y[j]
+            area -= x[j] * y[i]
+        return abs(area) / 2.0
+    
+    original_area = shoelace_area(pixel_coords)
+    stats['original_area'] = original_area
+    
+    # Filter by minimum area
+    min_area_px = min_area_ratio * img_width * img_height
+    if original_area < min_area_px:
+        stats['was_filtered'] = True
+        stats['filter_reason'] = f'area_too_small_{original_area:.1f}px2'
+        return None, stats
+    
+    try:
+        # Convert to shapely polygon (list of (x, y) tuples)
+        points = [(pixel_coords[i], pixel_coords[i+1]) 
+                  for i in range(0, len(pixel_coords), 2)]
+        
+        poly = ShapelyPolygon(points)
+        
+        # Check and repair validity (handles self-intersections, etc.)
+        if not poly.is_valid:
+            stats['was_invalid'] = True
+            poly = poly.buffer(0)  # Auto-repair using buffer trick
+            
+            # If still invalid or empty after repair, filter out
+            if not poly.is_valid or poly.is_empty:
+                stats['was_filtered'] = True
+                stats['filter_reason'] = 'invalid_unfixable'
+                return None, stats
+        
+        # Calculate tolerance in pixels
+        # This is the maximum distance a point can be from the simplified line
+        # to be removed. Simple polygons naturally won't be affected.
+        tolerance_px = tolerance_ratio * min(img_width, img_height)
+        
+        # Apply Douglas-Peucker simplification
+        # preserve_topology=True prevents creating self-intersections
+        simplified = poly.simplify(tolerance_px, preserve_topology=True)
+        
+        # Check if simplification resulted in invalid geometry
+        if simplified.is_empty or not simplified.is_valid:
+            stats['was_filtered'] = True
+            stats['filter_reason'] = 'simplification_failed'
+            return None, stats
+        
+        # Extract coordinates from simplified polygon
+        if hasattr(simplified, 'exterior'):
+            # shapely polygons have exterior coordinates
+            # coords includes duplicate last point, so exclude it
+            coords = list(simplified.exterior.coords[:-1])
+        elif hasattr(simplified, 'geoms'):
+            # Handle MultiPolygon: take the largest polygon by area
+            largest_poly = max(simplified.geoms, key=lambda p: p.area)
+            coords = list(largest_poly.exterior.coords[:-1])
+        else:
+            # Shouldn't happen, but handle gracefully
+            stats['was_filtered'] = True
+            stats['filter_reason'] = 'no_exterior'
+            return None, stats
+        
+        # Need at least 3 points after simplification
+        if len(coords) < 3:
+            stats['was_filtered'] = True
+            stats['filter_reason'] = 'simplified_too_few_points'
+            return None, stats
+        
+        # Convert back to flat list [x, y, x, y, ...]
+        cleaned_pixel_coords = []
+        for x, y in coords:
+            cleaned_pixel_coords.extend([x, y])
+        
+        # Calculate final area
+        final_area = shoelace_area(cleaned_pixel_coords)
+        stats['final_area'] = final_area
+        stats['final_points'] = len(coords)
+        
+        # Normalize back to [0, 1] range for YOLO format
+        cleaned_normalized = []
+        for i in range(0, len(cleaned_pixel_coords), 2):
+            cleaned_normalized.append(cleaned_pixel_coords[i] / img_width)
+            cleaned_normalized.append(cleaned_pixel_coords[i + 1] / img_height)
+        
+        return cleaned_normalized, stats
+        
+    except Exception as e:
+        # Catch any unexpected errors and filter out problematic polygons
+        stats['was_filtered'] = True
+        stats['filter_reason'] = f'exception_{str(e)[:50]}'
+        return None, stats

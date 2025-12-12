@@ -2,12 +2,15 @@
 import os
 import sys
 import shutil
+# Add project root to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 import numpy as np
 import random
 from PIL import Image, ImageDraw
 from src.controller import controller
 from src.utils import apply_mask_overlay, draw_points_on_image
+from src.dataset_manager import DatasetManager
 
 OUTPUT_DIR = "test_output"
 
@@ -205,6 +208,16 @@ def test_controller_flow():
         else:
             print(f"   ✅ Export reported success.")
             
+            # Use the robust verification script
+            print("\n   🔍 Running robust dataset verification...")
+            manager = DatasetManager(OUTPUT_DIR)
+            is_valid = manager.verify_dataset()
+            if is_valid:
+                print("   ✅ Dataset verification PASSED.")
+            else:
+                print("   ❌ Dataset verification FAILED.")
+                
+            # Simple check for specific file existence (as a double check)
             # Construct expected label path
             # Image name: DEPAL1_... .png -> Label: DEPAL1_... .txt
             img_filename = os.path.basename(img_path)

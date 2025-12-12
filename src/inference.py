@@ -4,11 +4,12 @@ from PIL import Image
 import warnings
 import logging
 from transformers import (
-    Sam3Model, Sam3Processor,
-    Sam3TrackerModel, Sam3TrackerProcessor,
+    Sam3Model, Sam3Processor, # type: ignore
+    Sam3TrackerModel, Sam3TrackerProcessor, # type: ignore
     logging as transformers_logging
 )
 from .schemas import ObjectState, SelectorInput
+from typing import Optional, Any
 
 # Suppress specific warnings
 warnings.filterwarnings("ignore", message=".*The OrderedVocab you are attempting to save contains holes.*")
@@ -18,10 +19,10 @@ transformers_logging.set_verbosity_error()
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # Global Models (loaded once)
-_IMG_MODEL = None
-_IMG_PROCESSOR = None
-_TRK_MODEL = None
-_TRK_PROCESSOR = None
+_IMG_MODEL: Optional[Any] = None
+_IMG_PROCESSOR: Optional[Any] = None
+_TRK_MODEL: Optional[Any] = None
+_TRK_PROCESSOR: Optional[Any] = None
 
 def load_models():
     global _IMG_MODEL, _IMG_PROCESSOR, _TRK_MODEL, _TRK_PROCESSOR
@@ -57,6 +58,8 @@ def search_objects(selector_input: SelectorInput) -> list[ObjectState]:
     Stage A: The Selector
     """
     if _IMG_MODEL is None: load_models()
+    assert _IMG_MODEL is not None
+    assert _IMG_PROCESSOR is not None
     
     image = selector_input.image.convert("RGB")
     original_w, original_h = image.size
@@ -195,6 +198,8 @@ def refine_object(image: Image.Image, obj_state: ObjectState) -> np.ndarray:
     print(f"   - Point Labels: {obj_state.input_labels}")
 
     if _TRK_MODEL is None: load_models()
+    assert _TRK_MODEL is not None
+    assert _TRK_PROCESSOR is not None
     
     original_w, original_h = image.size
     image = image.convert("RGB")

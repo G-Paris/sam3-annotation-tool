@@ -1,5 +1,6 @@
 from .schemas import GlobalStore, ObjectState, SelectorInput, ProjectState
 from .inference import search_objects, refine_object
+from .dataset_manager import DatasetManager
 from PIL import Image
 import numpy as np
 import os
@@ -492,6 +493,23 @@ val: images/train
         if obj_id in self.store.objects:
             return self.store.objects[obj_id].binary_mask
         return None
+
+    def clean_and_export_dataset(self, dataset_path, tolerance_ratio=0.000805, min_area_ratio=0.000219):
+        """Clean, validate, and zip a YOLO dataset."""
+        manager = DatasetManager(dataset_path)
+        
+        # 1. Remove Zone.Identifier files
+        manager.remove_zone_identifiers()
+        
+        # 2. Clean dataset (in-place)
+        print(f"Cleaning dataset at {dataset_path}...")
+        stats = manager.cleanup_dataset(tolerance_ratio, min_area_ratio)
+        
+        # 3. Finalize (Validation folders + Zip)
+        print("Finalizing dataset...")
+        zip_path = manager.finalize_dataset(create_zip=True)
+        
+        return stats, zip_path
 
 # Global Controller
 controller = AppController()

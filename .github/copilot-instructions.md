@@ -17,6 +17,11 @@ The project follows a loose MVC (Model-View-Controller) pattern:
 - **Running Tests**: Use `uv run python -m pytest` or `uv run tests/test_ui_callbacks.py`.
 - **Terminal Safety**: **ALWAYS** check the current working directory (`pwd`) before running terminal commands to ensure you are in the project root (`SAM3_image_annotator`).
 
+## Communication Protocol
+- **Explain First**: Before making significant changes (especially to `src/` or core logic), explain the plan and reasoning.
+- **Bash Suggestions**: Always provide the specific bash commands you intend to run or suggest the user runs.
+- **Feedback Loop**: Don't perform long chains of silent edits. Stop and report progress.
+
 ## Coding Conventions
 - **Gradio State**: Use `gr.State` for transient UI state (like current selection indices). Use `AppController` for persistent data (like annotations).
 - **Error Handling**: In `app.py` callbacks, raise `gr.Error("Message")` to show user-friendly error notifications in the UI.

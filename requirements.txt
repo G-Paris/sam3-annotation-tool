@@ -12,3 +12,4 @@ spaces
 numpy
 torch
 peft
+shapely
