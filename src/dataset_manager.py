@@ -463,15 +463,16 @@ class DatasetManager:
             with open(yaml_path, 'r') as f:
                 current_data = yaml.safe_load(f) or {}
             
-            # Enforce exact structure requested by user
-            new_data = {
-                'names': current_data.get('names', {}),
-                'path': '.',
-                'train': 'images/train'
-            }
+            # Update path and train
+            current_data['path'] = '.'
+            current_data['train'] = 'images/train'
+            
+            # Remove val if it exists
+            if 'val' in current_data:
+                del current_data['val']
             
             with open(yaml_path, 'w') as f:
-                yaml.dump(new_data, f, sort_keys=False, default_flow_style=False)
+                yaml.dump(current_data, f, sort_keys=False, default_flow_style=False)
 
     def _zip_directory(self, output_path):
         with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zipf:

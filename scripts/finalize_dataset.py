@@ -40,24 +40,16 @@ def create_empty_validation(dataset_path):
             lines = f.readlines()
         
         new_lines = []
-        val_updated = False
         for line in lines:
             if line.strip().startswith('val:'):
-                new_lines.append('val: images/val\n')
-                val_updated = True
+                continue # Remove val line
             else:
                 new_lines.append(line)
         
-        if not val_updated:
-            # Ensure it ends with newline before appending
-            if new_lines and not new_lines[-1].endswith('\n'):
-                new_lines[-1] += '\n'
-            new_lines.append('val: images/val\n')
-            
         with open(yaml_path, 'w') as f:
             f.writelines(new_lines)
             
-    print("Validation folders ready.")
+    print("Validation folders ready (but not added to data.yaml).")
 
 def zip_dataset(dataset_path, output_path):
     """Zip the dataset (images, labels, data.yaml) excluding junk."""

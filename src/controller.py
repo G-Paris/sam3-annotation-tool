@@ -290,7 +290,6 @@ class AppController:
 {chr(10).join([f"  {i}: {name}" for i, name in enumerate(class_list)])}
 path: .
 train: images/train
-val: images/train
 """
         with open(os.path.join(output_dir, "data.yaml"), "w") as f:
             f.write(yaml_content)
