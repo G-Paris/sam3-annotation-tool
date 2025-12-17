@@ -1,6 +1,7 @@
 from .schemas import GlobalStore, ObjectState, SelectorInput, ProjectState
 from .inference import search_objects, refine_object
 from .dataset_manager import DatasetManager
+from .view_helpers import draw_candidates
 from PIL import Image
 import numpy as np
 import os
@@ -133,6 +134,25 @@ class AppController:
                 self.store.objects[obj_state.object_id] = obj_state
                 added_ids.append(obj_state.object_id)
         return added_ids
+
+    def get_candidate_preview(self, candidates: list[ObjectState], selected_index: int | set | list = None):
+        """Generate preview image with candidates drawn."""
+        if self.current_image is None or not candidates:
+            return self.current_image
+            
+        return draw_candidates(self.current_image, candidates, selected_index)
+
+    def get_candidates_dataframe(self, candidates: list[ObjectState]):
+        """Get dataframe for UI list."""
+        data = []
+        for i, obj in enumerate(candidates):
+            # Add ID column (i+1) to match the image labels
+            data.append([
+                i + 1,              # ID
+                obj.class_name,     # Class
+                f"{obj.score:.2f}"  # Score
+            ])
+        return data
         
     def refine_object(self, obj_id: str, point: list[int], label: int):
         if obj_id not in self.store.objects: return None

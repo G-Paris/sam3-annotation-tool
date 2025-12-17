@@ -4,7 +4,7 @@ from PIL import Image, ImageDraw, ImageFont
 from src.theme import CustomBlueTheme
 from src.controller import controller
 from src.inference import load_models
-from src.utils import apply_mask_overlay, draw_points_on_image, get_bbox_from_mask, create_mask_crop
+from src.utils import apply_mask_overlay, get_bbox_from_mask
 from src.view_helpers import (
     draw_boxes_on_image, format_box_list, parse_dataframe, on_dataframe_change,
     delete_checked_boxes, on_upload, on_input_image_select, undo_last_click,
@@ -49,72 +49,47 @@ def run_inference_step1(clean_image, text_prompt, boxes, labels, class_name_over
     )
 
 def render_results_step2(candidates, image):
-    """Step 2: Render Gallery and Preview."""
+    """Step 2: Render List and Preview."""
     if image is None: return gr.update(), gr.update(), set()
     
     print("🖼️ Rendering results...")
     
     # Preview Image (All candidates dim)
-    preview_img = image.copy()
-    if candidates:
-        all_masks = np.array([c.binary_mask for c in candidates])
-        preview_img = apply_mask_overlay(preview_img, all_masks, opacity=0.5)
+    preview_img = controller.get_candidate_preview(candidates, selected_index=None)
         
-    # Gallery Items
-    gallery_items = []
+    # List Items
+    list_items = []
     for i, cand in enumerate(candidates):
-        crop = create_mask_crop(image, cand.binary_mask)
-        label = f"{cand.class_name} ({cand.score:.2f})"
-        gallery_items.append((crop, label))
+        label = f"ID {i+1}: {cand.class_name} ({cand.score:.2f})"
+        list_items.append(label)
         
     return (
-        gr.update(value=gallery_items),
+        gr.update(choices=list_items, value=[]),
         gr.update(value=preview_img),
         set() # Reset selected indices
     )
 
-def on_gallery_select(evt: gr.SelectData, selected_indices, candidates):
-    """Handle selection in gallery."""
-    idx = evt.index
-    if idx is None: return gr.update(), gr.update(), selected_indices
+def on_selection_change(selected_values, candidates):
+    """Handle selection change in checkbox group."""
+    # Reconstruct indices from selected values
+    # Value format: "ID {i+1}: ..."
+    selected_indices = set()
     
-    # Toggle selection
-    if idx in selected_indices:
-        selected_indices.remove(idx)
-    else:
-        selected_indices.add(idx)
-        
-    # Update Preview Image
-    base_img = controller.current_image
-    if base_img is None: return gr.update(), gr.update(), selected_indices
-    
-    preview_img = base_img.copy() # type: ignore
-    
-    if candidates:
-        # Create two groups of masks
-        selected_masks = []
-        unselected_masks = []
-        
-        for i, cand in enumerate(candidates):
-            if i in selected_indices:
-                selected_masks.append(cand.binary_mask)
-            else:
-                unselected_masks.append(cand.binary_mask)
-        
-        if unselected_masks:
-            preview_img = apply_mask_overlay(preview_img, np.array(unselected_masks), opacity=0.1)
-        if selected_masks:
-            preview_img = apply_mask_overlay(preview_img, np.array(selected_masks), opacity=0.6)
-            
-    # Update Gallery Captions
-    updated_gallery = []
+    # Create a map of label -> index for robust lookup
+    label_map = {}
     for i, cand in enumerate(candidates):
-        crop = create_mask_crop(base_img, cand.binary_mask)
-        prefix = "✅ " if i in selected_indices else ""
-        label = f"{prefix}{cand.class_name} ({cand.score:.2f})"
-        updated_gallery.append((crop, label))
+        label = f"ID {i+1}: {cand.class_name} ({cand.score:.2f})"
+        label_map[label] = i
+        
+    for val in selected_values:
+        if val in label_map:
+            selected_indices.add(label_map[val])
             
-    return gr.update(value=preview_img), gr.update(value=updated_gallery), selected_indices
+    # Update Preview Image
+    # Pass the set of selected indices to highlight them
+    preview_img = controller.get_candidate_preview(candidates, selected_index=selected_indices)
+    
+    return gr.update(value=preview_img), selected_indices
 
 def select_all_candidates(candidates):
     """Select all candidates."""
@@ -122,24 +97,24 @@ def select_all_candidates(candidates):
     
     all_indices = set(range(len(candidates)))
     
-    # Trigger update logic (reuse on_gallery_select logic or duplicate?)
-    # Let's just call the update logic manually
-    base_img = controller.current_image
-    if base_img is None: return gr.update(), gr.update(), all_indices
-    
-    preview_img = base_img.copy() # type: ignore
-    
-    all_masks = [c.binary_mask for c in candidates]
-    if all_masks:
-        preview_img = apply_mask_overlay(preview_img, np.array(all_masks), opacity=0.6)
-        
-    updated_gallery = []
+    list_items = []
     for i, cand in enumerate(candidates):
-        crop = create_mask_crop(base_img, cand.binary_mask)
-        label = f"✅ {cand.class_name} ({cand.score:.2f})"
-        updated_gallery.append((crop, label))
+        label = f"ID {i+1}: {cand.class_name} ({cand.score:.2f})"
+        list_items.append(label)
         
-    return gr.update(value=preview_img), gr.update(value=updated_gallery), all_indices
+    # Preview Image - Highlight ALL
+    preview_img = controller.get_candidate_preview(candidates, selected_index=all_indices)
+        
+    return gr.update(value=preview_img), gr.update(value=list_items), all_indices
+
+def deselect_all_candidates(candidates):
+    """Deselect all candidates."""
+    if not candidates: return gr.update(), gr.update(), set()
+    
+    # Preview Image
+    preview_img = controller.get_candidate_preview(candidates, selected_index=None)
+        
+    return gr.update(value=preview_img), gr.update(value=[]), set()
 
 def add_to_store_wrapper(candidates, selected_indices):
     if not selected_indices: raise gr.Error("No masks selected.")
@@ -172,12 +147,6 @@ def export_results(output_path, export_type="YOLO", zip_output=False):
             return "Export failed: No data to export."
     except Exception as e:
         return f"Export failed: {e}"
-
-def format_candidate_list(candidates):
-    choices = []
-    for i, cand in enumerate(candidates):
-        choices.append((f"Mask {i}: {cand.class_name} ({cand.score:.2f})", i))
-    return choices
 
 def add_to_store(candidates, selected_indices):
     if not selected_indices: raise gr.Error("No masks selected.")
@@ -214,11 +183,6 @@ thead th:first-child input[type="checkbox"] { display: none !important; }
 
 /* Scrollable Radio List */
 .scrollable-radio { max-height: 200px !important; overflow-y: auto !important; border: 1px solid #e5e7eb; padding: 5px; border-radius: 5px; }
-
-/* Gallery Adjustments */
-.candidate-gallery { min-height: 300px; }
-.candidate-gallery .grid-wrap { overflow-x: hidden !important; }
-.candidate-gallery .gallery-item { padding: 2px !important; }
 
 /* Hide Footer */
 footer { display: none !important; }
@@ -491,12 +455,18 @@ with gr.Blocks() as demo:
                         )
                         
                     with gr.Column(scale=1):
-                        # Gallery of crops
-                        results_gallery = gr.Gallery(label="Found Candidates (Click to Select)", columns=3, height=300, object_fit="contain", allow_preview=False, elem_classes="candidate-gallery")
+                        # Checkbox List of candidates
+                        results_list = gr.CheckboxGroup(
+                            label="Candidates",
+                            choices=[],
+                            value=[],
+                            interactive=True,
+                            elem_classes="candidate-list"
+                        )
                         
-                        # Selection List
                         with gr.Row():
                             select_all_btn = gr.Button("Select All", size="sm", variant="secondary")
+                            deselect_all_btn = gr.Button("Deselect All", size="sm", variant="secondary")
                             
                         with gr.Row():
                             confirm_btn = gr.Button("Add Selected to Store", variant="primary")
@@ -809,23 +779,23 @@ with gr.Blocks() as demo:
         if not controller.project.playlist:
              raise gr.Error("No images loaded.")
         
-        if not project_name:
-             raise gr.Error("Please enter a project name.")
-             
-        # Initialize project path
-        import os
-        os.makedirs("saved_projects", exist_ok=True)
-        filename = f"saved_projects/{project_name}.json"
-        
-        # Check if exists
-        if os.path.exists(filename):
-             # Optional: Warn user? For now, just proceed (will overwrite if saved)
-             pass
-             
-        controller.active_project_path = filename
-        
-        # Initial Save
-        controller.save_project(filename)
+        # Initialize project path only if name provided
+        if project_name:
+            import os
+            os.makedirs("saved_projects", exist_ok=True)
+            filename = f"saved_projects/{project_name}.json"
+            
+            # Check if exists
+            if os.path.exists(filename):
+                 # Optional: Warn user? For now, just proceed (will overwrite if saved)
+                 pass
+                 
+            controller.active_project_path = filename
+            
+            # Initial Save
+            controller.save_project(filename)
+        else:
+            controller.active_project_path = None
         
         # Ensure we have the first image loaded
         if controller.current_image is None:
@@ -929,14 +899,20 @@ with gr.Blocks() as demo:
     select_all_btn.click(
         fn=select_all_candidates,
         inputs=[st_candidates],
-        outputs=[preview_image, results_gallery, st_selected_indices]
+        outputs=[preview_image, results_list, st_selected_indices]
+    )
+
+    deselect_all_btn.click(
+        fn=deselect_all_candidates,
+        inputs=[st_candidates],
+        outputs=[preview_image, results_list, st_selected_indices]
     )
     
-    # 3c. Gallery Select
-    results_gallery.select(
-        fn=on_gallery_select,
-        inputs=[st_selected_indices, st_candidates],
-        outputs=[preview_image, results_gallery, st_selected_indices]
+    # 3c. List Select
+    results_list.change(
+        fn=on_selection_change,
+        inputs=[results_list, st_candidates],
+        outputs=[preview_image, st_selected_indices]
     )
     
     # 5. Confirm Selection -> Go to Editor
@@ -1172,7 +1148,7 @@ with gr.Blocks() as demo:
     ).then(
         fn=render_results_step2,
         inputs=[st_candidates, st_current_image],
-        outputs=[results_gallery, preview_image, st_selected_indices]
+        outputs=[results_list, preview_image, st_selected_indices]
     ).then(
         fn=get_image_counter,
         outputs=[result_img_counter]
@@ -1238,4 +1214,4 @@ with gr.Blocks() as demo:
     demo.load(None, None, None, js=custom_js)
 
 if __name__ == "__main__":
-    demo.launch(css=custom_css, theme=app_theme, ssr_mode=False, mcp_server=True, show_error=True)
+    demo.launch(css=custom_css, theme=app_theme, ssr_mode=False, mcp_server=False, show_error=True)

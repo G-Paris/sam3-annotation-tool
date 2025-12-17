@@ -47,31 +47,6 @@ def apply_mask_overlay(base_image, mask_data, opacity=0.5):
         
     return Image.alpha_composite(base_image, composite_layer).convert("RGB")
 
-def create_mask_crop(base_image, mask_array):
-    """Creates a cropped image of the masked area on a transparent background."""
-    if isinstance(base_image, np.ndarray):
-        base_image = Image.fromarray(base_image)
-    base_image = base_image.convert("RGBA")
-    
-    # Ensure mask is uint8
-    mask_uint8 = (mask_array * 255).astype(np.uint8)
-    mask_img = Image.fromarray(mask_uint8, mode='L')
-    
-    if mask_img.size != base_image.size:
-        mask_img = mask_img.resize(base_image.size, resample=Image.NEAREST)
-        
-    # Create composite
-    # We want the original image where the mask is, and transparent elsewhere
-    result = Image.new("RGBA", base_image.size, (0, 0, 0, 0))
-    result.paste(base_image, (0, 0), mask_img)
-    
-    # Crop to bounding box
-    bbox = mask_img.getbbox()
-    if bbox:
-        result = result.crop(bbox)
-        
-    return result
-
 def get_bbox_from_mask(mask_img):
     if mask_img is None: return None
     mask_arr = np.array(mask_img)

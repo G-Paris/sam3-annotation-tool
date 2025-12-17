@@ -1,7 +1,6 @@
 import gradio as gr
 import numpy as np
-from PIL import Image, ImageDraw
-from src.controller import controller
+from PIL import Image, ImageDraw, ImageFont
 
 def draw_boxes_on_image(image, boxes, labels, pending_point=None, crop_box=None):
     """Helper to draw boxes and pending point on image."""
@@ -49,7 +48,88 @@ def format_crop_box(crop_box):
         return []
     # [Delete?, x1, y1, x2, y2]
     return [[False, crop_box[0], crop_box[1], crop_box[2], crop_box[3]]]
+def draw_candidates(image: Image.Image, candidates: list, selected_indices: set | int | None = None):
+    """
+    Draws all candidates on the image with ID labels.
+    - selected_indices: If provided (set, list, or int), highlights these candidates and dims others.
+      If None, all are shown as active candidates.
+    """
+    if image is None: return None
+    
+    # Normalize selected_indices to a set or None
+    if selected_indices is not None:
+        if isinstance(selected_indices, int):
+            selected_indices = {selected_indices}
+        elif isinstance(selected_indices, list):
+            selected_indices = set(selected_indices)
+        elif not isinstance(selected_indices, set):
+            # Fallback
+            selected_indices = None
+            
+    # Work on RGBA for transparency
+    canvas = image.convert("RGBA")
+    overlay = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    
+    # Load font
+    try:
+        font = ImageFont.truetype("arial.ttf", 24)
+    except:
+        try:
+            font = ImageFont.truetype("DejaVuSans-Bold.ttf", 24)
+        except:
+            font = ImageFont.load_default()
 
+    for idx, obj in enumerate(candidates):
+        if obj.binary_mask is None: continue
+        
+        # Determine style based on selection
+        is_selected = (selected_indices is not None) and (idx in selected_indices)
+        # If nothing is selected (None), all are "active". 
+        # If something is selected, only selected ones are active/highlighted.
+        is_active = (selected_indices is None) or is_selected
+        
+        if is_active:
+            # Active Color (Greenish for selected, Reddish for candidates if none selected)
+            # If selected_indices is None, we show them as candidates (Reddish)
+            # If selected_indices is NOT None, and this IS selected, show Greenish
+            
+            if selected_indices is None:
+                 fill_color = (255, 50, 50, 80) # Default candidate color
+            else:
+                 fill_color = (50, 255, 50, 140) # Selected color
+                 
+            text_color = (255, 255, 255, 255)
+        else:
+            # Dimmed Color (Grayed out)
+            fill_color = (128, 128, 128, 30)
+            text_color = (200, 200, 200, 100)
+
+        # 1. Draw Mask
+        # Create a mask image for this object
+        mask_uint8 = (obj.binary_mask * 255).astype(np.uint8)
+        mask_layer = Image.fromarray(mask_uint8, mode='L')
+        
+        # Colorize mask
+        colored_mask = Image.new("RGBA", canvas.size, fill_color)
+        overlay.paste(colored_mask, (0, 0), mask_layer)
+        
+        # 2. Draw ID at Centroid
+        y_indices, x_indices = np.where(obj.binary_mask)
+        if len(y_indices) > 0:
+            cy = int(np.mean(y_indices))
+            cx = int(np.mean(x_indices))
+            
+            label = str(idx + 1)
+            
+            # Draw text background for readability
+            bbox = draw.textbbox((cx, cy), label, font=font, anchor="mm")
+            # Add padding
+            draw.rectangle([bbox[0]-4, bbox[1]-4, bbox[2]+4, bbox[3]+4], fill=(0, 0, 0, 160))
+            draw.text((cx, cy), label, font=font, fill=text_color, anchor="mm")
+
+    # Composite
+    return Image.alpha_composite(canvas, overlay).convert("RGB")
 def parse_dataframe(df_data):
     """Parse dataframe back to boxes and labels."""
     boxes = []
@@ -182,6 +262,8 @@ def on_upload(files):
         elif hasattr(f, 'name'):
             paths.append(f.name)
             
+    # Import controller inside function to avoid circular import
+    from src.controller import controller
     first_image = controller.load_playlist(paths)
     
     return first_image, [], [], None # clean_img, boxes, labels, pending_pt

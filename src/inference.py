@@ -206,45 +206,43 @@ def refine_object(image: Image.Image, obj_state: ObjectState) -> np.ndarray:
     
     # --- Dynamic Cropping Logic ---
     # 1. Determine bounding box of interest (Anchor Box + All Input Points)
-    x1, y1, x2, y2 = obj_state.anchor_box
+    # This is the "Refinement Box" that encompasses the object and new points
+    rx1, ry1, rx2, ry2 = obj_state.anchor_box
     
     if obj_state.input_points:
         for pt in obj_state.input_points:
             px, py = pt
-            x1 = min(x1, px)
-            y1 = min(y1, py)
-            x2 = max(x2, px)
-            y2 = max(y2, py)
+            rx1 = min(rx1, px)
+            ry1 = min(ry1, py)
+            rx2 = max(rx2, px)
+            ry2 = max(ry2, py)
             
-    # 2. Add Padding (25%)
-    width = x2 - x1
-    height = y2 - y1
+    # 2. Add Padding (25%) to create the Crop Box
+    width = rx2 - rx1
+    height = ry2 - ry1
     padding = int(max(width, height) * 0.25)
     
-    cx1 = max(0, int(x1 - padding))
-    cy1 = max(0, int(y1 - padding))
-    cx2 = min(original_w, int(x2 + padding))
-    cy2 = min(original_h, int(y2 + padding))
+    cx1 = max(0, int(rx1 - padding))
+    cy1 = max(0, int(ry1 - padding))
+    cx2 = min(original_w, int(rx2 + padding))
+    cy2 = min(original_h, int(ry2 + padding))
     
     crop_offset_x, crop_offset_y = cx1, cy1
     
     # 3. Crop Image
     if cx2 > cx1 and cy2 > cy1:
         image = image.crop((cx1, cy1, cx2, cy2))
-        # print(f"✂️ Refiner Cropped to: {image.size} (Offset: {crop_offset_x}, {crop_offset_y})")
     else:
-        # Fallback if invalid crop (shouldn't happen)
         crop_offset_x, crop_offset_y = 0, 0
         
     # --- Coordinate Adjustment ---
     
-    # Adjust Anchor Box
-    ax1, ay1, ax2, ay2 = obj_state.anchor_box
+    # Use the Refinement Box (tight) as the prompt, adjusted to crop coordinates
     box_float = [
-        float(ax1 - crop_offset_x), 
-        float(ay1 - crop_offset_y), 
-        float(ax2 - crop_offset_x), 
-        float(ay2 - crop_offset_y)
+        float(rx1 - crop_offset_x), 
+        float(ry1 - crop_offset_y), 
+        float(rx2 - crop_offset_x), 
+        float(ry2 - crop_offset_y)
     ]
     
     # Adjust Points
