@@ -21,7 +21,7 @@ app_theme = CustomBlueTheme()
 
 def run_inference_step1(clean_image, text_prompt, boxes, labels, class_name_override, crop_box=None):
     """Step 1: Run Inference and switch screens."""
-    print(f"🖱️ Run Inference Clicked! Prompt: '{text_prompt}', Override: '{class_name_override}', Boxes: {len(boxes)}, Crop: {crop_box}")
+    print(f"🖱️  Run Inference Clicked! Prompt: '{text_prompt}', Override: '{class_name_override}', Boxes: {len(boxes)}, Crop: {crop_box}")
     
     if clean_image is None: 
         raise gr.Error("Please upload an image.")
@@ -52,7 +52,7 @@ def render_results_step2(candidates, image):
     """Step 2: Render List and Preview."""
     if image is None: return gr.update(), gr.update(), set()
     
-    print("🖼️ Rendering results...")
+    print("🖼️  Rendering results...")
     
     # Preview Image (All candidates dim)
     preview_img = controller.get_candidate_preview(candidates, selected_index=None)
@@ -135,6 +135,8 @@ def revert_object_refinement(obj_id):
 
 def export_results(output_path, export_type="YOLO", zip_output=False):
     """Export results to output folder."""
+    print(f"📦  Exporting results to {output_path} (Type: {export_type}, Zip: {zip_output})...")
+    
     if "Not supported yet" in export_type:
         raise gr.Error(f"Export type '{export_type}' is not supported yet.")
         

@@ -28,7 +28,7 @@ def load_models():
     global _IMG_MODEL, _IMG_PROCESSOR, _TRK_MODEL, _TRK_PROCESSOR
     if _IMG_MODEL is not None: return
 
-    print(f"🖥️ Using compute device: {device}")
+    print(f"🖥️  Using compute device: {device}")
     print("⏳ Loading SAM3 Models...")
     
     # 1. Selector (Sam3Model)
@@ -78,7 +78,7 @@ def search_objects(selector_input: SelectorInput) -> list[ObjectState]:
         if cx2 > cx1 and cy2 > cy1:
             image = image.crop((cx1, cy1, cx2, cy2))
             crop_offset_x, crop_offset_y = cx1, cy1
-            print(f"✂️ Cropped image to: {image.size} (Offset: {crop_offset_x}, {crop_offset_y})")
+            print(f"✂️  Cropped image to: {image.size} (Offset: {crop_offset_x}, {crop_offset_y})")
     
     # Prepare inputs
     input_boxes = None

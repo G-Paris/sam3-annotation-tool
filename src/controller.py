@@ -317,12 +317,18 @@ train: images/train
         msg = f"Exported {exported_count} images to {output_dir}"
         
         if zip_output:
+            # Determine zip name based on project name if available
+            zip_name = "dataset"
+            if self.active_project_path:
+                # Extract project name from path (e.g., "saved_projects/my_project.json" -> "my_project")
+                zip_name = os.path.splitext(os.path.basename(self.active_project_path))[0]
+            
             # Create a temp folder for staging the zip
             parent_dir = os.path.dirname(os.path.abspath(output_dir))
             temp_dir = os.path.join(parent_dir, "temp")
             os.makedirs(temp_dir, exist_ok=True)
             
-            base_name = os.path.join(temp_dir, "dataset")
+            base_name = os.path.join(temp_dir, zip_name)
             
             # Create zip in temp folder
             zip_file = shutil.make_archive(base_name, 'zip', output_dir)
@@ -336,7 +342,7 @@ train: images/train
                     shutil.rmtree(item_path)
             
             # Move zip to output_dir
-            final_name = "dataset.zip"
+            final_name = f"{zip_name}.zip"
             final_path = os.path.join(output_dir, final_name)
             shutil.move(zip_file, final_path)
             
