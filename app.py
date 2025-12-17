@@ -387,6 +387,12 @@ with gr.Blocks() as demo:
                     nav_status = gr.Textbox(label="Status", show_label=False, value="0/0", interactive=False, scale=1, elem_classes="nav-status")
                     next_btn = gr.Button("Next", size="sm", scale=0)
 
+                # Prompt Row (Full Width)
+                with gr.Row():
+                    txt_prompt = gr.Dropdown(label="Text Prompt", choices=[], allow_custom_value=True, show_label=True, scale=4)
+                    txt_class_name = gr.Dropdown(label="Class Name Override", choices=[], allow_custom_value=True, show_label=True, scale=2)
+                    run_btn = gr.Button("Run Inference", variant="primary", scale=1)
+
                 with gr.Row():
                     # Left Column: Image
                     with gr.Column(scale=3):
@@ -398,11 +404,6 @@ with gr.Blocks() as demo:
                             elem_id="input_image",
                             elem_classes="zoom-image"
                         )
-                        
-                        # Prompt Row (Moved Below Image)
-                        with gr.Row():
-                            txt_prompt = gr.Dropdown(label="Text Prompt", choices=[], allow_custom_value=True, show_label=True, scale=2)
-                            txt_class_name = gr.Dropdown(label="Class Name Override", choices=[], allow_custom_value=True, show_label=True, scale=1)
                     
                     # Right Column: Controls
                     with gr.Column(scale=1):
@@ -436,8 +437,6 @@ with gr.Blocks() as demo:
                             elem_classes="box-list-df"
                         )
                         delete_box_btn = gr.Button("Delete Checked Boxes", variant="stop", size="sm")
-                        
-                        run_btn = gr.Button("Run Inference", variant="primary", size="lg")
 
             # --- SCREEN 2: RESULTS ---
             with gr.TabItem("Results", id=2) as result_screen:
@@ -536,12 +535,13 @@ with gr.Blocks() as demo:
                             export_type = gr.Dropdown(label="Export Type", choices=["YOLO", "COCO (Not supported yet)"], value="YOLO", scale=1)
                         
                         gr.Markdown("⚠️ **Warning:** Exporting will delete the current contents in the output directory before saving.")
-                        gr.Markdown("ℹ️ **Note:** All classes in the project history will be included in `data.yaml` to ensure compatibility with tools like CVAT, make sure all labels in the CVAT project are added to the project history (prevents KeyError).")
                         
                         with gr.Row():
                             zip_export = gr.Checkbox(label="Zip Output", value=False, scale=0)
                             export_btn = gr.Button("Export", scale=0, min_width=150)
                             reset_btn = gr.Button("Reset Project", variant="stop", scale=0, min_width=150)
+                        
+                        gr.Markdown("ℹ️ **Note:** All classes in the project history will be included in `data.yaml` to ensure compatibility with tools like CVAT, make sure all labels in the CVAT project are added to the project history (prevents KeyError).")
                             
                         export_status = gr.Textbox(label="Export Status", interactive=False, elem_id="export-status", lines=5)
 
