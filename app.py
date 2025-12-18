@@ -375,6 +375,11 @@ with gr.Blocks() as demo:
                                     confirm_delete_btn = gr.Button("⚠️ Confirm Delete", variant="stop", size="sm", visible=False)
                                     cancel_delete_btn = gr.Button("Cancel", size="sm", visible=False)
                                 
+                                with gr.Row():
+                                    delete_all_btn = gr.Button("Delete ALL Projects", variant="stop", size="sm")
+                                    confirm_delete_all_btn = gr.Button("⚠️ Confirm Delete ALL", variant="stop", size="sm", visible=False)
+                                    cancel_delete_all_btn = gr.Button("Cancel", size="sm", visible=False)
+                                
                             project_status = gr.Textbox(label="Status", interactive=False, lines=10, scale=1)
 
             # --- SCREEN 1: INPUT ---
@@ -772,6 +777,56 @@ with gr.Blocks() as demo:
         fn=on_confirm_delete,
         inputs=[project_dropdown],
         outputs=[confirm_delete_btn, cancel_delete_btn, project_status, project_dropdown]
+    )
+
+    # Delete All Projects Logic
+    def on_delete_all_click():
+        return gr.update(visible=True), gr.update(visible=True), "Are you sure you want to delete ALL projects? This cannot be undone."
+
+    delete_all_btn.click(
+        fn=on_delete_all_click,
+        inputs=[],
+        outputs=[confirm_delete_all_btn, cancel_delete_all_btn, project_status]
+    )
+
+    def on_cancel_delete_all():
+        return gr.update(visible=False), gr.update(visible=False), "Deletion cancelled."
+
+    cancel_delete_all_btn.click(
+        fn=on_cancel_delete_all,
+        inputs=[],
+        outputs=[confirm_delete_all_btn, cancel_delete_all_btn, project_status]
+    )
+
+    def on_confirm_delete_all():
+        import os
+        import shutil
+        
+        folder = "saved_projects"
+        if not os.path.exists(folder):
+             return gr.update(visible=False), gr.update(visible=False), "No projects found.", gr.update(choices=[])
+             
+        try:
+            # Delete all files and folders in saved_projects
+            for filename in os.listdir(folder):
+                file_path = os.path.join(folder, filename)
+                try:
+                    if os.path.isfile(file_path) or os.path.islink(file_path):
+                        os.unlink(file_path)
+                    elif os.path.isdir(file_path):
+                        shutil.rmtree(file_path)
+                except Exception as e:
+                    print(f"Failed to delete {file_path}. Reason: {e}")
+            
+            return gr.update(visible=False), gr.update(visible=False), "All projects deleted.", gr.update(choices=[], value=None)
+            
+        except Exception as e:
+            return gr.update(visible=False), gr.update(visible=False), f"Error deleting projects: {e}", gr.update(choices=list_projects())
+
+    confirm_delete_all_btn.click(
+        fn=on_confirm_delete_all,
+        inputs=[],
+        outputs=[confirm_delete_all_btn, cancel_delete_all_btn, project_status, project_dropdown]
     )
     
     # Init project list on load

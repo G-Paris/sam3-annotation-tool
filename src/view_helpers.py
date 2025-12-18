@@ -1,5 +1,6 @@
 import gradio as gr
 import numpy as np
+import colorsys
 from PIL import Image, ImageDraw, ImageFont
 
 def draw_boxes_on_image(image, boxes, labels, pending_point=None, crop_box=None):
@@ -90,14 +91,17 @@ def draw_candidates(image: Image.Image, candidates: list, selected_indices: set 
         is_active = (selected_indices is None) or is_selected
         
         if is_active:
-            # Active Color (Greenish for selected, Reddish for candidates if none selected)
-            # If selected_indices is None, we show them as candidates (Reddish)
-            # If selected_indices is NOT None, and this IS selected, show Greenish
+            # Generate unique color for this index using Golden Ratio for distinctness
+            hue = (idx * 0.618033988749895) % 1
+            r, g, b = colorsys.hsv_to_rgb(hue, 1.0, 1.0)
+            base_rgb = (int(r*255), int(g*255), int(b*255))
             
             if selected_indices is None:
-                 fill_color = (255, 50, 50, 80) # Default candidate color
+                 # Default candidate view - use unique colors
+                 fill_color = (*base_rgb, 100) 
             else:
-                 fill_color = (50, 255, 50, 140) # Selected color
+                 # Selected view - use unique colors (more opaque)
+                 fill_color = (*base_rgb, 160) 
                  
             text_color = (255, 255, 255, 255)
         else:
