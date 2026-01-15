@@ -12,10 +12,19 @@ The project follows a loose MVC (Model-View-Controller) pattern:
 - **Helpers (`src/view_helpers.py`)**: UI-specific utilities (drawing boxes on images, formatting dataframes).
 
 ## Development Workflow
-- **Package Manager**: This project uses **`uv`** for dependency management and execution.
+- **Package Manager**: This project uses **`uv`** with `pyproject.toml` and `uv.lock`.
+- **Syncing Deps**: Use `uv sync` to install dependencies (ensures exact versions).
 - **Running the App**: Use `uv run app.py` to start the application.
 - **Running Tests**: Use `uv run python -m pytest` or `uv run tests/test_ui_callbacks.py`.
 - **Terminal Safety**: **ALWAYS** check the current working directory (`pwd`) before running terminal commands to ensure you are in the project root (`SAM3_image_annotator`).
+
+## Critical Constraints & "Gotchas"
+- **Gradio Version**: Must use `gradio==6.0.2` (or strictly pinned version in `pyproject.toml`). Newer unstable/nightly versions of Gradio cause the frontend to freeze (MutationObserver loops). Do NOT upgrade Gradio blindly.
+- **License Separation**:
+    - Code is **Apache 2.0**.
+    - Model (SAM 3) is **Meta Custom License**.
+    - **NEVER** bundle `.pt` or model weight files in the repo. They must be ignored in `.gitignore`.
+- **Project Structure Change**: We migrated from `requirements.txt` to `pyproject.toml` + `uv.lock`. Do not use pip commands directly; use `uv add` or `uv sync`.
 
 ## Communication Protocol
 - **Explain First**: Before making significant changes (especially to `src/` or core logic), explain the plan and reasoning.

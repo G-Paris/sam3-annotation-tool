@@ -44,3 +44,21 @@ test_output/
 temp/
 saved_projects/
 output.zip
+
+# Model Weights (Do NOT Include)
+*.pt
+*.pth
+*.bin
+*.onnx
+*.safetensors
+models/
+weights/
+sam3_checkpoint.pt
+
+# Environment files
+.env
+.env.*
+
+# Environment files
+.env
+.env.*

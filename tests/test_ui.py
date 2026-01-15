@@ -1,6 +1,6 @@
 import gradio as gr
 
-def test_ui():
+def create_demo():
     with gr.Blocks() as demo:
         gr.Markdown("# UI Navigation Test (Tabs)")
         
@@ -63,6 +63,10 @@ def test_ui():
 
     return demo
 
+def test_ui():
+    demo = create_demo()
+    assert demo is not None
+
 if __name__ == "__main__":
-    demo = test_ui()
+    demo = create_demo()
     demo.launch(show_error=True)

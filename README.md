@@ -35,46 +35,48 @@ This project provides a Gradio interface for image annotation using the SAM3 mod
     cd SAM3_image_annotator
     ```
 
-2.  **Set up the environment with `uv`**
-    Create a virtual environment and install dependencies:
+2.  **Install dependencies**
+    Use `uv` to sync the project environment:
     ```bash
-    # Create virtual environment
-    uv venv
-
-    # Activate the environment
-    # On Linux/macOS:
-    source .venv/bin/activate
-    # On Windows:
-    # .venv\Scripts\activate
-
-    # Install dependencies
-    uv pip install -r requirements.txt
+    # Create virtual environment and install dependencies from uv.lock
+    uv sync
     ```
 
 3.  **Run the Application**
-    You need to provide your Hugging Face token when running the app. You can do this by setting the `HF_TOKEN` environment variable.
+    Use `uv run` to start the app.
+
+    You must provide your Hugging Face token (with access to `facebook/sam3`).
 
     **Linux/macOS:**
     ```bash
-    export HF_TOKEN="hf_..."  # Replace with your actual token
-    python app.py
+    export HF_TOKEN="hf_..." 
+    uv run app.py
     ```
 
     **Windows (PowerShell):**
     ```powershell
     $env:HF_TOKEN="hf_..."
-    python app.py
+    uv run app.py
     ```
 
-    Alternatively, you can log in via the CLI if you have `huggingface_hub` installed (included in dependencies):
-    ```bash
-    huggingface-cli login
-    # Follow the prompts to paste your token
-    python app.py
-    ```
+    *Tip: You can also create a `.env` file (not committed) to store your token.*
 
 4.  **Access the Interface**
     Once the application starts, open your browser and navigate to the local URL provided in the terminal (typically `http://127.0.0.1:7860`).
+
+## License & Legal Disclaimer
+
+**This Tool (The Code): Apache License 2.0**
+The source code of this annotation tool (UI, wrapper logic, data management) is licensed under the [Apache License 2.0](LICENSE). You are free to use, modify, and distribute this software for commercial and non-commercial purposes, provided you include the original license.
+
+**The Model (SAM 3): Meta Custom License**
+This tool uses the **Segment Anything Model 3 (SAM 3)** by Meta. The model weights and core SAM 3 definitions are subject to **Meta's Custom License**, which may have different restrictions (especially regarding commercial use or redistributing the weights).
+
+*   **We do NOT bundle SAM 3 weights** in this repository.
+*   The model is downloaded automatically from Hugging Face (`facebook/sam3`) using your access token.
+*   By using this tool, you agree to comply with Meta's license terms for SAM 3.
+
+**Please review the separate license terms for SAM 3 explicitly on their [Hugging Face Model Card](https://huggingface.co/facebook/sam3).**
 
 ## Project Structure
 
@@ -84,6 +86,10 @@ This project provides a Gradio interface for image annotation using the SAM3 mod
   - `inference.py`: Handles model loading and inference (SAM3).
   - `schemas.py`: Pydantic data models for type safety.
   - `view_helpers.py`: UI-specific helper functions and event handlers.
+  - `dataset_manager.py`: YOLO dataset export and management.
   - `theme.py`: Custom UI theme.
   - `utils.py`: General helper functions for image processing.
-- `requirements.txt`: Python dependencies.
+- `scripts/`: Utility scripts for dataset operations (cleanup, verification, analysis).
+- `tests/`: Unit and integration tests.
+- `pyproject.toml`: Project configuration and dependencies.
+- `uv.lock`: Locked dependency versions for reproducibility.
