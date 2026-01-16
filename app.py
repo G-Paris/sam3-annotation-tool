@@ -1,5 +1,7 @@
 import gradio as gr
 import numpy as np
+import os
+import glob
 from PIL import Image, ImageDraw, ImageFont
 from src.theme import CustomBlueTheme
 from src.controller import controller
@@ -10,6 +12,9 @@ from src.view_helpers import (
     delete_checked_boxes, on_upload, on_input_image_select, undo_last_click,
     on_crop_dataframe_change, format_crop_box
 )
+
+# Dynamically load example images from the example_img folder
+EXAMPLE_IMAGES = sorted(glob.glob("example_img/*.jpg") + glob.glob("example_img/*.png") + glob.glob("example_img/*.jpeg"))
 
 # Load models immediately on startup
 load_models()
@@ -165,6 +170,15 @@ custom_css="""
 #input_image { position: relative; overflow: hidden; }
 #input_image button, #input_image img, #input_image canvas { cursor: crosshair !important; }
 .zoom-image img { transition: transform 0.1s ease-out; }
+
+/* Use max-height to constrain large images without upscaling small ones */
+/* This fixes zoom/click coordinate issues for images smaller than container */
+#input_image img,
+.zoom-image img {
+    max-height: 600px !important;
+    width: auto !important;
+    height: auto !important;
+}
 
 /* Dataframe Font Size */
 .box-list-df td, .box-list-df th, .box-list-df td span, .box-list-df td input, .box-list-df td div { font-size: 10px !important; line-height: 1.0 !important; padding: 2px !important; }
@@ -348,10 +362,11 @@ with gr.Blocks() as demo:
                                     type="filepath",
                                     height=400
                                 )
-                                gr.Examples(
-                                    examples=["example_img/DEPAL1_2025-11-28_12-31-29.710_81822238-07b7-4b4a-830b-5ab0e5272dbb.Color.png"],
-                                    inputs=single_image_input
-                                )
+                                if EXAMPLE_IMAGES:
+                                    gr.Examples(
+                                        examples=EXAMPLE_IMAGES,
+                                        inputs=single_image_input
+                                    )
                         
                         gr.Markdown("### Project Details")
                         new_project_name = gr.Textbox(label="Project Name", placeholder="Enter a name for your new project")
@@ -404,7 +419,6 @@ with gr.Blocks() as demo:
                         img_input = gr.Image(
                             label="Current Image (Click 2 Points for Box)", 
                             type="pil", 
-                            height=600,
                             interactive=True,
                             elem_id="input_image",
                             elem_classes="zoom-image"
@@ -456,8 +470,7 @@ with gr.Blocks() as demo:
                             label="Selected Candidates Preview", 
                             type="pil", 
                             interactive=False,
-                            elem_classes="zoom-image",
-                            height=600
+                            elem_classes="zoom-image"
                         )
                         
                     with gr.Column(scale=1):
@@ -494,7 +507,6 @@ with gr.Blocks() as demo:
                             label="Click to Refine",
                             type="pil",
                             interactive=False,
-                            height=600,
                             elem_classes="zoom-image"
                         )
                         

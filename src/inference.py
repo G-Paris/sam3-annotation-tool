@@ -31,15 +31,27 @@ def load_models():
     print(f"🖥️  Using compute device: {device}")
     print("⏳ Loading SAM3 Models...")
     
-    # 1. Selector (Sam3Model)
-    _IMG_MODEL = Sam3Model.from_pretrained("facebook/sam3").to(device)
-    _IMG_PROCESSOR = Sam3Processor.from_pretrained("facebook/sam3")
+    # Use local_files_only=True to skip network checks (faster, more consistent)
+    local_only = True
     
-    # 2. Refiner (Sam3TrackerModel)
-    _TRK_MODEL = Sam3TrackerModel.from_pretrained("facebook/sam3").to(device)
-    _TRK_PROCESSOR = Sam3TrackerProcessor.from_pretrained("facebook/sam3")
+    try:
+        # 1. Selector (Sam3Model)
+        _IMG_MODEL = Sam3Model.from_pretrained("facebook/sam3", local_files_only=local_only).to(device)
+        _IMG_PROCESSOR = Sam3Processor.from_pretrained("facebook/sam3", local_files_only=local_only)
+        
+        # 2. Refiner (Sam3TrackerModel)
+        _TRK_MODEL = Sam3TrackerModel.from_pretrained("facebook/sam3", local_files_only=local_only).to(device)
+        _TRK_PROCESSOR = Sam3TrackerProcessor.from_pretrained("facebook/sam3", local_files_only=local_only)
+        
+    except OSError:
+        # Models not cached, need to download first
+        print(f"⚠️  Models not in cache, downloading... (this only happens once)")
+        _IMG_MODEL = Sam3Model.from_pretrained("facebook/sam3").to(device)
+        _IMG_PROCESSOR = Sam3Processor.from_pretrained("facebook/sam3")
+        _TRK_MODEL = Sam3TrackerModel.from_pretrained("facebook/sam3").to(device)
+        _TRK_PROCESSOR = Sam3TrackerProcessor.from_pretrained("facebook/sam3")
     
-    print("✅ Models loaded successfully!")
+    print(f"✅ All models loaded!")
 
 def get_bbox_from_mask(mask_arr):
     if mask_arr is None: return None
