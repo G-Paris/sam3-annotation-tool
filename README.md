@@ -4,25 +4,27 @@ GP's interactive GRADIO app to generate train datasets with annotations for one 
 
 This was a big exploration of how to vibe-code my way through such a project. So give the tool some slack if you're trying to make some changes to it :)
 
-## Key Features
+## Features
 
 *   **Generate masks using prompts, input boxes or a combination**
 *   **Discard masks that are not relevant**
 *   **Finetune masks using point refinement**
 *   **Export dataset zipped or unzipped, zipped uploads directly to cvat**
 
-## Extra features
+## Extra
 *   **Zoom and move around higher res images**
 *   **Define cropped area to increase SAM3 inference resolution**
 *   **Append masks from multiple SAM inference calls per image**
 *   **Save&load progress when working with larger amount of images**
+
+https://github.com/user-attachments/assets/b34d1784-6013-45ee-99e8-c99be51cabe3
 
 ## Quickstart
 
 ### Prerequisites
 
 1.  **Install `uv`**
-    This project uses `uv` for extremely fast Python package management.
+    This project uses `uv` for fast Python package management.
     
     **Linux/macOS:**
     ```bash
