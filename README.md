@@ -1,6 +1,6 @@
 # SAM3 Image Annotator
 
-GP's interactive GRADIO app to generate train datasets with annotations for one or multiple images using SAM3.
+GP's interactive Gradio app to generate train datasets with annotations for one or multiple images using SAM3.
 
 This was a big exploration of how to vibe-code my way through such a project. So give the tool some slack if you're trying to make some changes to it :)
 
