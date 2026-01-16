@@ -1,6 +1,21 @@
 # SAM3 Image Annotator
 
-This project provides a Gradio interface for image annotation using the SAM3 model.
+GP's interactive GRADIO app to generate train datasets with annotations for one or multiple images using SAM3.
+
+This was a big exploration of how to vibe-code my way through such a project. So give the tool some slack if you're trying to make some changes to it :)
+
+## Key Features
+
+*   **Generate masks using prompts, input boxes or a combination**
+*   **Discard masks that are not relevant**
+*   **Finetune masks using point refinement**
+*   **Export dataset zipped or unzipped, zipped uploads directly to cvat**
+
+## Extra features
+*   **Zoom and move around higher res images**
+*   **Define cropped area to increase SAM3 inference resolution**
+*   **Append masks from multiple SAM inference calls per image**
+*   **Save&load progress when working with larger amount of images**
 
 ## Quickstart
 
