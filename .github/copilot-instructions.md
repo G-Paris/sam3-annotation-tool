@@ -16,7 +16,7 @@ The project follows a loose MVC (Model-View-Controller) pattern:
 - **Syncing Deps**: Use `uv sync` to install dependencies (ensures exact versions).
 - **Running the App**: Use `uv run app.py` to start the application.
 - **Running Tests**: Use `uv run python -m pytest` or `uv run tests/test_ui_callbacks.py`.
-- **Terminal Safety**: **ALWAYS** check the current working directory (`pwd`) before running terminal commands to ensure you are in the project root (`SAM3_image_annotator`).
+- **Terminal Safety**: **ALWAYS** check the current working directory (`pwd`) before running terminal commands to ensure you are in the project root (`sam3-annotation-tool`).
 
 ## Critical Constraints & "Gotchas"
 - **Gradio Version**: Must use `gradio==6.0.2` (or strictly pinned version in `pyproject.toml`). Newer unstable/nightly versions of Gradio cause the frontend to freeze (MutationObserver loops). Do NOT upgrade Gradio blindly.

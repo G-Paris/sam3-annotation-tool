@@ -48,8 +48,8 @@ https://github.com/user-attachments/assets/b34d1784-6013-45ee-99e8-c99be51cabe3
 
 1.  **Clone the repository**
     ```bash
-    git clone <repository_url>
-    cd SAM3_image_annotator
+    git clone https://github.com/G-Paris/sam3-annotation-tool.git
+    cd sam3-annotation-tool
     ```
 
 2.  **Install dependencies**
