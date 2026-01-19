@@ -17,7 +17,18 @@ def test_ui_flow():
     print("🚀 Starting UI Callback Test...")
     
     # 1. Setup Image
-    img_path = "/home/gp/Github/SAM3_image_annotator/example_img/DEPAL1_2025-11-28_12-31-29.710_81822238-07b7-4b4a-830b-5ab0e5272dbb.Color.png"
+    # Dynamically find an image in example_img
+    example_dir = os.path.join(os.getcwd(), "example_img")
+    valid_extensions = ('.jpg', '.jpeg', '.png')
+    
+    try:
+        img_filename = next(f for f in os.listdir(example_dir) if f.lower().endswith(valid_extensions))
+        img_path = os.path.join(example_dir, img_filename)
+        print(f"Using test image: {img_path}")
+    except (StopIteration, FileNotFoundError):
+        print(f"❌ No images found in {example_dir}")
+        return
+
     if not os.path.exists(img_path):
         print(f"❌ Image not found at {img_path}")
         return
