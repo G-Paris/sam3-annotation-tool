@@ -2,6 +2,8 @@
 
 GP's interactive Gradio app to generate train datasets with annotations for one or multiple images using SAM3.
 
+https://github.com/user-attachments/assets/b34d1784-6013-45ee-99e8-c99be51cabe3
+
 This was a big exploration of how to vibe-code my way through such a project. So give the tool some slack if you're trying to make some changes to it :)
 
 ## Features
@@ -16,8 +18,6 @@ This was a big exploration of how to vibe-code my way through such a project. So
 *   **Define cropped area to increase SAM3 inference resolution**
 *   **Append masks from multiple SAM inference calls per image**
 *   **Save&load progress when working with larger amount of images**
-
-https://github.com/user-attachments/assets/b34d1784-6013-45ee-99e8-c99be51cabe3
 
 ## Quickstart
 
