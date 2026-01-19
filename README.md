@@ -2,6 +2,8 @@
 
 GP's interactive Gradio app to generate train datasets with annotations for one or multiple images using SAM3.
 
+[![Hugging Face Spaces](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-blue)](https://huggingface.co/spaces/gp187/sam3-annotation-tool)
+
 https://github.com/user-attachments/assets/b34d1784-6013-45ee-99e8-c99be51cabe3
 
 This was a big exploration of how to vibe-code my way through such a project. So give the tool some slack if you're trying to make some changes to it :)
