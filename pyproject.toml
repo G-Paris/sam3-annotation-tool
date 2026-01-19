@@ -1,5 +1,5 @@
 [project]
-name = "sam3-image-annotator"
+name = "sam3-annotation-tool"
 version = "0.1.0"
 description = "Gradio interface for SAM3 image annotation"
 readme = "README.md"

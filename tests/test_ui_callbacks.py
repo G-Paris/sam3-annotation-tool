@@ -8,7 +8,7 @@ import numpy as np
 sys.path.append(os.getcwd())
 
 from app import run_inference_step1, render_results_step2, add_to_store, init_editor, select_all_candidates, revert_object_refinement, export_results
-from src.controller import controller
+from src.sam3_annotation_tool.controller import controller
 
 # Mock Gradio Update for inspection if needed, 
 # but we are importing real gradio so we will get real Update objects.

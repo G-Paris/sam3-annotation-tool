@@ -3,11 +3,11 @@ import numpy as np
 import os
 import glob
 from PIL import Image, ImageDraw, ImageFont
-from src.theme import CustomBlueTheme
-from src.controller import controller
-from src.inference import load_models
-from src.utils import apply_mask_overlay, get_bbox_from_mask
-from src.view_helpers import (
+from src.sam3_annotation_tool.theme import CustomBlueTheme
+from src.sam3_annotation_tool.controller import controller
+from src.sam3_annotation_tool.inference import load_models
+from src.sam3_annotation_tool.utils import apply_mask_overlay, get_bbox_from_mask
+from src.sam3_annotation_tool.view_helpers import (
     draw_boxes_on_image, format_box_list, parse_dataframe, on_dataframe_change,
     delete_checked_boxes, on_upload, on_input_image_select, undo_last_click,
     on_crop_dataframe_change, format_crop_box

@@ -267,7 +267,7 @@ def on_upload(files):
             paths.append(f.name)
             
     # Import controller inside function to avoid circular import
-    from src.controller import controller
+    from .controller import controller
     first_image = controller.load_playlist(paths)
     
     return first_image, [], [], None # clean_img, boxes, labels, pending_pt

@@ -98,7 +98,7 @@ This tool uses the **Segment Anything Model 3 (SAM 3)** by Meta. The model weigh
 ## Project Structure
 
 - `app.py`: Main Gradio application entry point and UI definition.
-- `src/`: Source code for the application logic.
+- `src/sam3_annotation_tool/`: Source code for the application logic.
   - `controller.py`: Manages application state and business logic.
   - `inference.py`: Handles model loading and inference (SAM3).
   - `schemas.py`: Pydantic data models for type safety.

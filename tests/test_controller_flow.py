@@ -8,9 +8,9 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 import numpy as np
 import random
 from PIL import Image, ImageDraw
-from src.controller import controller
-from src.utils import apply_mask_overlay, draw_points_on_image
-from src.dataset_manager import DatasetManager
+from src.sam3_annotation_tool.controller import controller
+from src.sam3_annotation_tool.utils import apply_mask_overlay, draw_points_on_image
+from src.sam3_annotation_tool.dataset_manager import DatasetManager
 
 OUTPUT_DIR = "test_output"
 

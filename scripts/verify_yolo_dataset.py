@@ -10,7 +10,7 @@ import argparse
 # Add parent directory to path to import from src
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.dataset_manager import DatasetManager
+from src.sam3_annotation_tool.dataset_manager import DatasetManager
 
 def main():
     parser = argparse.ArgumentParser(description="Verify YOLO dataset integrity")
