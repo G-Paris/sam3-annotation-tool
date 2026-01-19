@@ -1,4 +1,4 @@
-# SAM3 Image Annotator
+# SAM3 Annotation Tool
 
 GP's interactive Gradio app to generate train datasets with annotations for one or multiple images using SAM3.
 
